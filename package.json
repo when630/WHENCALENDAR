@@ -1,0 +1,60 @@
+{
+  "name": "whencalendar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "몰입해도 시간은 놓치지 않는다 — 상단 아일랜드 오버레이로 다음 일정까지 남은 시간을 알려주는 트레이 상주 캘린더",
+  "author": "when630 <70129021+when630@users.noreply.github.com>",
+  "main": "main/index.mjs",
+  "scripts": {
+    "start": "electron .",
+    "seed": "electron . --seed",
+    "smoke": "electron . --smoke",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "icons": "node tools/make-icon.mjs",
+    "postinstall": "node tools/make-icon.mjs",
+    "build": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "com.when630.whencalendar",
+    "productName": "WHENCALENDAR",
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "build/*.png"
+    ],
+    "artifactName": "WHENCALENDAR-${version}-${os}-${arch}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "WHENCALENDAR"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "when630",
+        "repo": "WHENCALENDAR"
+      }
+    ]
+  }
+}

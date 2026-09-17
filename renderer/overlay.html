@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <link href="./tokens.css" rel="stylesheet" />
+    <title>whencalendar overlay</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: var(--font-sans);
+        -webkit-user-select: none;
+        cursor: default;
+      }
+
+      #stage {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: 7px;
+      }
+
+      /* 아일랜드 — 평소엔 링만, 가까워지면 옆으로 늘어난다 (OVL-05) */
+      .isle {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        background: rgba(18, 21, 27, 0.96);
+        color: var(--text-primary);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 24px;
+        padding: 4px calc(6px + var(--rv) * 9px) 4px 5px;
+        box-shadow: 0 7px 26px rgba(0, 0, 0, 0.5);
+        white-space: nowrap;
+        opacity: var(--vis);
+        transition:
+          padding 0.45s cubic-bezier(0.2, 0.9, 0.3, 1),
+          opacity 0.4s ease,
+          gap 0.4s ease;
+      }
+      .isle.hover {
+        padding-right: 15px;
+        opacity: 1;
+      }
+
+      svg.ring {
+        width: var(--rsz);
+        height: var(--rsz);
+        flex: none;
+        overflow: visible;
+        display: block;
+      }
+      .ring .bg {
+        stroke: rgba(140, 148, 160, 0.26);
+      }
+      .ring .fg {
+        stroke: var(--col);
+        stroke-linecap: round;
+        transition:
+          stroke-dashoffset 0.18s linear,
+          stroke 0.45s ease;
+      }
+
+      .txt {
+        display: flex;
+        align-items: baseline;
+        gap: var(--sp-2);
+        overflow: hidden;
+        max-width: calc(var(--rv) * 340px);
+        opacity: var(--rv);
+        transition:
+          max-width 0.45s cubic-bezier(0.2, 0.9, 0.3, 1),
+          opacity 0.3s ease;
+      }
+      .isle.hover .txt {
+        max-width: 340px;
+        opacity: 1;
+      }
+      .t {
+        font-size: 12.5px;
+        font-weight: 640;
+        letter-spacing: -0.15px;
+      }
+      .left {
+        font-size: 12.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: var(--col);
+      }
+
+      /* 오늘 남은 일정 개수 (OVL-07) */
+      .dots {
+        display: flex;
+        gap: var(--sp-1);
+        align-items: center;
+        overflow: hidden;
+        max-width: calc(var(--rv) * 70px);
+        opacity: var(--rv);
+        transition:
+          max-width 0.45s,
+          opacity 0.3s;
+      }
+      .isle.hover .dots {
+        max-width: 70px;
+        opacity: 1;
+      }
+      .dots i {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: rgba(150, 160, 175, 0.42);
+        flex: none;
+      }
+      .dots i.next {
+        background: var(--col);
+      }
+
+      /* 진행 중 / 곧 종료 (OVL-08·OVL-09) */
+      .badge {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        padding: 2px 7px;
+        border-radius: var(--r-sm);
+        background: var(--bdg);
+        color: var(--col);
+        overflow: hidden;
+        max-width: calc(var(--rv) * 100px);
+        opacity: var(--rv);
+        transition:
+          max-width 0.45s,
+          opacity 0.3s,
+          background 0.45s;
+      }
+      .isle.hover .badge {
+        max-width: 100px;
+        opacity: 1;
+      }
+
+      /* 호버로만 열리는 다음 일정 (OVL-11) */
+      .more {
+        font-size: 10.5px;
+        color: var(--text-muted);
+        overflow: hidden;
+        max-width: 0;
+        opacity: 0;
+        padding-left: 0;
+        border-left: 1px solid transparent;
+        transition:
+          max-width 0.4s cubic-bezier(0.2, 0.9, 0.3, 1),
+          opacity 0.28s,
+          padding-left 0.4s,
+          border-color 0.3s;
+      }
+      .isle.hover .more {
+        max-width: 260px;
+        opacity: 1;
+        padding-left: 10px;
+        border-left-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .beat .isle {
+        animation: breathe 1.7s ease-in-out infinite;
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          box-shadow: 0 7px 26px rgba(0, 0, 0, 0.5);
+        }
+        50% {
+          box-shadow:
+            0 7px 26px rgba(0, 0, 0, 0.5),
+            0 0 0 3px var(--glow);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div class="isle" id="isle">
+        <svg class="ring" viewBox="0 0 24 24">
+          <circle class="bg" cx="12" cy="12" r="9" fill="none" stroke-width="2.6" />
+          <circle
+            class="fg"
+            id="arc"
+            cx="12"
+            cy="12"
+            r="9"
+            fill="none"
+            stroke-width="2.6"
+            transform="rotate(-90 12 12)"
+          />
+        </svg>
+        <span class="txt"><span class="t" id="title"></span><span class="left" id="left"></span></span>
+        <span class="dots" id="dots"></span>
+        <span class="badge" id="badge"></span>
+        <span class="more" id="more"></span>
+      </div>
+    </div>
+    <script src="./overlay.js"></script>
+  </body>
+</html>
