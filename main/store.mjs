@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { expand } from './recur.mjs';
 
 // 앱이 자신보다 높은 user_version의 DB를 만나면 열지 않는다(STOR-03) — 구버전으로 되돌린
 // 사용자가 최신 스키마에 실수로 쓰지 않게 막는 신호다.
@@ -186,6 +187,30 @@ function quarantine(file) {
 
 const now = () => new Date().toISOString();
 
+// 밖으로 나가는 일정의 모양. SQL 컬럼명은 여기서 끝난다(D-15).
+const EVENT_COLS = `e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.location, e.note,
+                    e.rrule, e.exdates, e.uid,
+                    c.id AS cal_id, c.color AS color, c.name AS calendar_name, c.kind AS calendar_kind`;
+
+function toDomain(r) {
+  return {
+    id: r.id,
+    uid: r.uid,
+    title: r.title,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    allDay: !!r.all_day,
+    location: r.location,
+    note: r.note,
+    rrule: r.rrule,
+    exdates: r.exdates ? JSON.parse(r.exdates) : null,
+    calendarId: r.cal_id,
+    color: r.color,
+    calendarName: r.calendar_name,
+    calendarKind: r.calendar_kind,
+  };
+}
+
 // 달력 색은 상태색(성공·경고·실패)과 같은 값을 뒤로 미뤄 배정한다(D-09).
 // 파랑 → 보라 → 하늘 → 초록 → 노랑 → 분홍.
 export const COLOR_ORDER = [1, 3, 6, 2, 4, 5];
@@ -295,29 +320,30 @@ export function createStore(file) {
     // 밖으로 나가는 것은 clock.mjs가 그대로 먹을 수 있는 모양이어야 한다 —
     // 이 변환이 빠져 있어서 조회는 되는데 상태 계산이 통째로 비는 버그가 있었다.
     listBetween(fromISO, toISO) {
-      return q(
-        `SELECT e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.location, e.note,
-                c.color AS color, c.name AS calendar_name, c.kind AS calendar_kind
+      // 반복 일정은 시작 시각이 범위보다 한참 앞이라 SQL 범위 조건으로는 걸리지 않는다.
+      // 그래서 두 번에 나눠 가져온다 — 범위와 겹치는 단발 일정, 그리고 반복 규칙이 있는 것 전부.
+      // 후자는 recur.expand가 범위만큼만 펼친다(D-07).
+      const plain = q(
+        `SELECT ${EVENT_COLS}
            FROM event e JOIN calendar c ON c.id = e.calendar_id
-          WHERE e.deleted_at IS NULL
-            AND c.enabled = 1
-            AND e.starts_at < ?
-            AND COALESCE(e.ends_at, e.starts_at) > ?
-          ORDER BY e.starts_at`
+          WHERE e.deleted_at IS NULL AND c.enabled = 1 AND e.rrule IS NULL
+            AND e.starts_at < ? AND COALESCE(e.ends_at, e.starts_at) > ?`
       )
         .all(toISO, fromISO)
-        .map((r) => ({
-          id: r.id,
-          title: r.title,
-          startsAt: r.starts_at,
-          endsAt: r.ends_at,
-          allDay: !!r.all_day,
-          location: r.location,
-          note: r.note,
-          color: r.color,
-          calendarName: r.calendar_name,
-          calendarKind: r.calendar_kind,
-        }));
+        .map(toDomain);
+
+      const repeating = q(
+        `SELECT ${EVENT_COLS}
+           FROM event e JOIN calendar c ON c.id = e.calendar_id
+          WHERE e.deleted_at IS NULL AND c.enabled = 1 AND e.rrule IS NOT NULL
+            AND e.starts_at < ?`
+      )
+        .all(toISO)
+        .map(toDomain);
+
+      return [...plain, ...expand(repeating, fromISO, toISO)].sort(
+        (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)
+      );
     },
 
     softDeleteEvent(id) {
@@ -331,30 +357,102 @@ export function createStore(file) {
       return Number(info.changes ?? 0);
     },
 
+    // ── 구독 (SUB)
+    updateCalendar(id, patch) {
+      const cols = {
+        name: 'name',
+        url: 'url',
+        color: 'color',
+        enabled: 'enabled',
+        lastSyncAt: 'last_sync_at',
+        lastError: 'last_error',
+        etag: 'etag',
+      };
+      const sets = [];
+      const vals = [];
+      for (const [k, col] of Object.entries(cols)) {
+        if (!(k in patch)) continue;
+        sets.push(`${col} = ?`);
+        vals.push(typeof patch[k] === 'boolean' ? (patch[k] ? 1 : 0) : patch[k]);
+      }
+      if (!sets.length) return;
+      q(`UPDATE calendar SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+    },
+
+    // 구독을 지우면 그 일정도 함께 사라진다. 직접 등록한 것은 다른 달력에 있으므로 남는다(STOR-04).
+    deleteCalendar(id) {
+      withTransaction(db, () => {
+        q('DELETE FROM event WHERE calendar_id = ?').run(id);
+        q('DELETE FROM calendar WHERE id = ?').run(id);
+      });
+    },
+
+    /**
+     * 구독에서 받아온 일정으로 그 달력을 통째로 맞춘다 (SUB-02).
+     *
+     * 구독은 원격이 진실이다 — 여기 있고 저기 없는 것은 지운다. 다만 **이 함수가 불리는 것 자체가
+     * 성공적으로 받아왔다는 뜻**이어야 한다. 실패했을 때 빈 배열로 부르면 일정이 전부 사라진다(SUB-03).
+     */
+    replaceCalendarEvents(calendarId, incoming) {
+      const t = now();
+      return withTransaction(db, () => {
+        const before = q('SELECT uid, source_hash FROM event WHERE calendar_id = ?').all(calendarId);
+        const seen = new Set();
+        let added = 0;
+        let updated = 0;
+
+        const ins = q(
+          `INSERT INTO event (calendar_id, uid, title, starts_at, ends_at, all_day, tzid, rrule, exdates,
+                              location, source_hash, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        const upd = q(
+          `UPDATE event SET title = ?, starts_at = ?, ends_at = ?, all_day = ?, tzid = ?, rrule = ?,
+                            exdates = ?, location = ?, source_hash = ?, deleted_at = NULL, updated_at = ?
+            WHERE calendar_id = ? AND uid = ?`
+        );
+
+        const known = new Map(before.map((r) => [r.uid, r.source_hash]));
+
+        for (const e of incoming) {
+          const uid = e.uid || `${e.title}@${e.startsAt}`;
+          if (seen.has(uid)) continue; // 같은 uid가 두 번 오면(수정 회차 등) 첫 것만
+          seen.add(uid);
+
+          const ex = e.exdates ? JSON.stringify(e.exdates) : null;
+          const hash = [e.title, e.startsAt, e.endsAt, e.allDay, e.rrule, ex, e.location].join('|');
+          if (!known.has(uid)) {
+            ins.run(calendarId, uid, e.title, e.startsAt, e.endsAt, e.allDay ? 1 : 0, e.tzid ?? null,
+                    e.rrule ?? null, ex, e.location ?? null, hash, t, t);
+            added++;
+          } else if (known.get(uid) !== hash) {
+            upd.run(e.title, e.startsAt, e.endsAt, e.allDay ? 1 : 0, e.tzid ?? null, e.rrule ?? null,
+                    ex, e.location ?? null, hash, t, calendarId, uid);
+            updated++;
+          }
+        }
+
+        // 원격에서 사라진 것은 여기서도 지운다
+        let removed = 0;
+        const del = q('DELETE FROM event WHERE calendar_id = ? AND uid = ?');
+        for (const r of before) {
+          if (!seen.has(r.uid)) {
+            del.run(calendarId, r.uid);
+            removed++;
+          }
+        }
+        return { added, updated, removed, total: seen.size };
+      });
+    },
+
     // 되돌리기(EV-06). 소프트 삭제라 지웠던 행을 되살리기만 하면 된다.
     restoreEvent(id) {
       q('UPDATE event SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now(), id);
     },
 
     getEvent(id) {
-      const r = q(
-        `SELECT e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.location, e.note,
-                c.color AS color, c.name AS calendar_name, c.kind AS calendar_kind
-           FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?`
-      ).get(id);
-      if (!r) return null;
-      return {
-        id: r.id,
-        title: r.title,
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
-        allDay: !!r.all_day,
-        location: r.location,
-        note: r.note,
-        color: r.color,
-        calendarName: r.calendar_name,
-        calendarKind: r.calendar_kind,
-      };
+      const r = q(`SELECT ${EVENT_COLS} FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?`).get(id);
+      return r ? toDomain(r) : null;
     },
 
     countEvents() {

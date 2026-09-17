@@ -5,7 +5,9 @@ const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const TABS = [
   { key: 'today', label: '오늘' },
   { key: 'week', label: '주' },
+  { key: 'subs', label: '구독' },
 ];
+const CAL_COLORS = [1, 2, 3, 4, 5, 6];
 
 const el = {
   tabs: document.getElementById('tabs'),
@@ -29,6 +31,9 @@ const state = {
   cursor: 0,
   undo: [], // 삭제한 id 스택 (EV-06)
   overlay: null, // 'dlg' | 'keys' | null
+  dlgMode: 'event', // 'event' | 'sub'
+  subs: [],
+  syncing: new Set(),
 };
 
 function startOfDay(d) {
@@ -210,6 +215,123 @@ function renderWeek(now) {
   el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
+function renderSubs() {
+  el.dateLabel.textContent = '';
+  const frag = document.createDocumentFragment();
+
+  const subs = state.subs.filter((c) => c.kind === 'subscription');
+  const local = state.subs.filter((c) => c.kind === 'local');
+
+  if (subs.length === 0) {
+    const d = document.createElement('div');
+    d.className = 'empty';
+    const big = document.createElement('div');
+    big.className = 'big';
+    big.textContent = '구독한 달력이 없습니다';
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.innerHTML =
+      '구글 캘린더 설정 → 캘린더 통합 → <b>비공개 주소(iCal 형식)</b>를 복사해 붙이면<br>' +
+      '회사·개인 일정이 그대로 들어옵니다. 로그인은 필요 없습니다.<br><br>A 로 추가';
+    d.append(big, hint);
+    frag.append(d);
+  }
+
+  subs.forEach((c, i) => {
+    frag.append(subRow(c, i === state.cursor));
+    if (i === state.cursor) {
+      frag.append(palette(c));
+      if (c.lastError) {
+        const e = document.createElement('div');
+        e.className = 'errbox';
+        e.textContent = c.lastError;
+        frag.append(e);
+      }
+    }
+  });
+
+  if (local.length) {
+    const head = document.createElement('div');
+    head.className = 'seghead';
+    const b = document.createElement('b');
+    b.textContent = '이 PC';
+    const line = document.createElement('i');
+    head.append(b, line);
+    frag.append(head);
+    for (const c of local) frag.append(subRow(c, false));
+  }
+
+  el.body.replaceChildren(frag);
+}
+
+function subRow(c, selected) {
+  const row = document.createElement('div');
+  row.className = 'sub' + (selected ? ' sel' : '');
+
+  const sw = document.createElement('span');
+  sw.className = 'sw';
+  sw.style.background = `var(--cal-${c.color})`;
+
+  const main = document.createElement('span');
+  main.className = 'main';
+  const nm = document.createElement('div');
+  nm.className = 'nm';
+  nm.textContent = c.name;
+  const url = document.createElement('div');
+  url.className = 'url';
+  url.textContent = c.kind === 'local' ? '직접 등록한 일정' : c.url;
+  main.append(nm, url);
+
+  const st = document.createElement('span');
+  st.className = 'st';
+  if (c.kind === 'local') {
+    st.textContent = '항상 사용';
+  } else if (state.syncing.has(c.id)) {
+    st.className = 'st load';
+    st.textContent = '받는 중…';
+  } else if (c.lastError) {
+    st.className = 'st err';
+    st.textContent = '실패 · ' + ago(c.lastSyncAt);
+  } else {
+    st.textContent = '읽기 전용 · ' + ago(c.lastSyncAt);
+  }
+
+  row.append(sw, main, st);
+
+  if (c.kind === 'subscription') {
+    const tg = document.createElement('span');
+    tg.className = 'toggle' + (c.enabled ? ' on' : '');
+    row.append(tg);
+  }
+  return row;
+}
+
+function palette(c) {
+  const d = document.createElement('div');
+  d.className = 'pal';
+  const lb = document.createElement('span');
+  lb.className = 'lb';
+  lb.textContent = 'C 색';
+  d.append(lb);
+  for (const n of CAL_COLORS) {
+    const sw = document.createElement('span');
+    sw.className = 'sw2' + (n === c.color ? ' on' : '');
+    sw.style.background = `var(--cal-${n})`;
+    d.append(sw);
+  }
+  return d;
+}
+
+function ago(iso) {
+  if (!iso) return '아직 없음';
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return '방금';
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  return `${Math.floor(h / 24)}일 전`;
+}
+
 function segHead(label) {
   const d = document.createElement('div');
   d.className = 'seghead';
@@ -250,6 +372,18 @@ function emptyBox() {
 // ── 데이터
 async function load() {
   const now = new Date();
+
+  state.subs = await window.subs.list();
+  if (state.tab === 'subs') {
+    const subs = state.subs.filter((c) => c.kind === 'subscription');
+    if (state.cursor >= subs.length) state.cursor = Math.max(0, subs.length - 1);
+    const today = await window.cal.list({ day: new Date().toISOString(), days: 1 });
+    const week = await window.cal.list({ day: mondayOf(new Date()).toISOString(), days: 7 });
+    renderTabs({ today: today.events?.length ?? 0, week: week.events?.length ?? 0, subs: subs.length });
+    renderSubs();
+    return;
+  }
+
   const opts =
     state.tab === 'today'
       ? { day: state.anchor.toISOString(), days: 1 }
@@ -262,7 +396,11 @@ async function load() {
   // 탭 배지 — 오늘은 오늘 건수, 주는 이번 주 건수
   const today = await window.cal.list({ day: new Date().toISOString(), days: 1 });
   const week = await window.cal.list({ day: mondayOf(new Date()).toISOString(), days: 7 });
-  renderTabs({ today: today.events?.length ?? 0, week: week.events?.length ?? 0 });
+  renderTabs({
+    today: today.events?.length ?? 0,
+    week: week.events?.length ?? 0,
+    subs: state.subs.filter((c) => c.kind === 'subscription').length,
+  });
 
   if (state.tab === 'today') renderToday(now);
   else renderWeek(now);
@@ -277,12 +415,22 @@ async function refreshInfo() {
 // ── 한 줄 입력
 let parseTimer = null;
 
-function openDialog() {
+function openDialog(mode = 'event') {
   state.overlay = 'dlg';
+  state.dlgMode = mode;
   el.scrim.classList.remove('hidden');
   el.dlg.classList.remove('hidden');
   el.dlgIn.value = '';
-  el.dlgParse.innerHTML = '<span class="no">날짜·시각·제목을 알아서 읽습니다</span>';
+  const isSub = mode === 'sub';
+  el.dlg.querySelector('label').textContent = isSub
+    ? '구독 추가 — .ics 주소를 붙여 넣으세요'
+    : '새 일정 — 한 줄로 적으세요';
+  el.dlgIn.placeholder = isSub
+    ? 'https://calendar.google.com/calendar/ical/…/basic.ics'
+    : '담주 화 3시 김부장 미팅 1시간';
+  el.dlgParse.innerHTML = isSub
+    ? '<span class="no">구글 캘린더 설정 → 캘린더 통합 → 비공개 주소(iCal 형식)</span>'
+    : '<span class="no">날짜·시각·제목을 알아서 읽습니다</span>';
   el.dlgIn.focus();
 }
 
@@ -295,6 +443,7 @@ function closeOverlay() {
 }
 
 async function previewParse() {
+  if (state.dlgMode === 'sub') return; // 주소는 미리 볼 것이 없다
   const line = el.dlgIn.value.trim();
   if (!line) {
     el.dlgParse.innerHTML = '<span class="no">날짜·시각·제목을 알아서 읽습니다</span>';
@@ -317,6 +466,21 @@ function escapeHtml(s) {
 async function submitDialog() {
   const line = el.dlgIn.value.trim();
   if (!line) return;
+
+  if (state.dlgMode === 'sub') {
+    el.dlgParse.innerHTML = '<span class="no">받는 중…</span>';
+    const r = await window.subs.add(line);
+    if (!r.ok) {
+      el.dlgParse.innerHTML = `<span class="q">＊ ${escapeHtml(r.error)}</span>`;
+      return;
+    }
+    closeOverlay();
+    await load();
+    const sync = r.sync ?? {};
+    toast(sync.ok ? `구독을 추가했습니다 — 일정 ${sync.added ?? 0}건` : `추가했지만 받아오지 못했습니다`);
+    return;
+  }
+
   const res = await window.cal.add(line);
   if (!res.ok) {
     if (res.reason === 'parse') {
@@ -412,6 +576,60 @@ document.addEventListener('keydown', async (e) => {
     await load();
     return;
   }
+  // ── 구독 탭에서만 듣는 키
+  if (state.tab === 'subs') {
+    const cal = selectedSub();
+    if (k === 'a' || k === 'A' || k === 'ㅁ') {
+      e.preventDefault();
+      openDialog('sub');
+      return;
+    }
+    if (k === 'r' || k === 'R' || k === 'ㄱ') {
+      toast('받는 중…');
+      state.subs.filter((c) => c.kind === 'subscription').forEach((c) => state.syncing.add(c.id));
+      rerender();
+      const res = await window.subs.sync(null);
+      state.syncing.clear();
+      await load();
+      const failed = (res.results ?? []).filter((r) => !r.ok).length;
+      toast(failed ? `${failed}개 실패` : '최신 상태입니다');
+      return;
+    }
+    if (k === ' ') {
+      e.preventDefault();
+      if (cal) {
+        await window.subs.toggle(cal.id);
+        await load();
+      }
+      return;
+    }
+    if (k === 'c' || k === 'C' || k === 'ㅊ') {
+      if (cal) {
+        const next = CAL_COLORS[(CAL_COLORS.indexOf(cal.color) + 1) % CAL_COLORS.length];
+        await window.subs.color(cal.id, next);
+        await load();
+      }
+      return;
+    }
+    if (k === 'x' || k === 'X' || k === 'ㅌ') {
+      if (cal) {
+        await window.subs.remove(cal.id);
+        await load();
+        toast(`구독을 지웠습니다 — ${cal.name}`);
+      }
+      return;
+    }
+    if (k === 'j' || k === 'ArrowDown' || k === 'k' || k === 'ArrowUp') {
+      e.preventDefault();
+      const n = state.subs.filter((c) => c.kind === 'subscription').length;
+      const d = k === 'j' || k === 'ArrowDown' ? 1 : -1;
+      state.cursor = Math.max(0, Math.min(state.cursor + d, Math.max(0, n - 1)));
+      rerender();
+      return;
+    }
+    return;
+  }
+
   if (k === 'x' || k === 'X' || k === 'ㅌ') {
     const ev = state.events[state.cursor];
     if (!ev) return;
@@ -440,9 +658,12 @@ document.addEventListener('keydown', async (e) => {
 
 function rerender() {
   const now = new Date();
-  if (state.tab === 'today') renderToday(now);
+  if (state.tab === 'subs') renderSubs();
+  else if (state.tab === 'today') renderToday(now);
   else renderWeek(now);
 }
+
+const selectedSub = () => state.subs.filter((c) => c.kind === 'subscription')[state.cursor] ?? null;
 
 el.body.addEventListener('click', (e) => {
   const row = e.target.closest('.ev');

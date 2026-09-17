@@ -20,3 +20,13 @@ contextBridge.exposeInMainWorld('cal', {
   hide: () => ipcRenderer.send('win:hide'),
   minimize: () => ipcRenderer.send('win:minimize'),
 });
+
+// 구독 — .ics 주소를 붙이면 일정이 알아서 들어온다
+contextBridge.exposeInMainWorld('subs', {
+  list: () => ipcRenderer.invoke('sub:list'),
+  add: (url) => ipcRenderer.invoke('sub:add', url),
+  sync: (id) => ipcRenderer.invoke('sub:sync', id ?? null),
+  toggle: (id) => ipcRenderer.invoke('sub:toggle', id),
+  color: (id, color) => ipcRenderer.invoke('sub:color', { id, color }),
+  remove: (id) => ipcRenderer.invoke('sub:delete', id),
+});

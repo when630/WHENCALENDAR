@@ -12,6 +12,7 @@ import { createOverlay } from './overlay.mjs';
 import { createMainWindow } from './window.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stateAt, msUntilNextChange, DEFAULTS } from './clock.mjs';
+import { syncAll, SYNC_INTERVAL_MS } from './sync.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -99,7 +100,7 @@ export function bootstrap() {
     return;
   }
 
-  const ctx = { store: null, settings: null, overlay: null, mainWindow: null, tray: null, timer: null };
+  const ctx = { store: null, settings: null, overlay: null, mainWindow: null, tray: null, timer: null, syncTimer: null };
 
   function loadEvents() {
     const [from, to] = dayRange();
@@ -189,6 +190,18 @@ export function bootstrap() {
     powerMonitor.on('unlock-screen', tick);
 
     // whenwork(Ctrl+Alt+Space)·whennote(Ctrl+Alt+M/N)와 겹치지 않는 키 (오픈이슈 #2)
+    // 구독은 주기적으로 알아서 받아 온다 (SUB-02). 첫 회는 창이 뜨는 것을 막지 않게 조금 늦춘다.
+    const pump = async () => {
+      if (!ctx.store?.ok) return;
+      const results = await syncAll(ctx.store);
+      if (results.length) {
+        ctx.mainWindow.notifyChanged();
+        tick();
+      }
+    };
+    setTimeout(pump, 4000);
+    ctx.syncTimer = setInterval(pump, SYNC_INTERVAL_MS);
+
     globalShortcut.register('Ctrl+Alt+C', () => ctx.mainWindow.toggle());
     globalShortcut.register('Ctrl+Alt+O', () => ctx.overlay.setSuspended(!ctx.overlay.suspended));
 
@@ -197,6 +210,7 @@ export function bootstrap() {
 
   app.on('will-quit', () => {
     clearTimeout(ctx.timer);
+    clearInterval(ctx.syncTimer);
     globalShortcut.unregisterAll();
     ctx.overlay?.destroy();
     ctx.mainWindow?.destroy();
