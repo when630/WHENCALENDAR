@@ -69,6 +69,14 @@ function createWindow () {
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
+  // 전체화면·TopMost 창이 나중에 뜨면 같은 z-order 밴드에서 우리 위로 올라간다.
+  // 주기적으로 맨 위를 다시 잡는다. moveTop()은 포커스를 뺏지 않는다.
+  setInterval(() => {
+    if (!win || win.isDestroyed() || !win.isVisible()) return
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.moveTop()
+  }, 1000)
+
   win.loadFile(path.join(__dirname, 'overlay.html'))
   win.webContents.once('did-finish-load', () => {
     win.showInactive()
