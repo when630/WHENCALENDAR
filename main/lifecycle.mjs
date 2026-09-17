@@ -50,7 +50,30 @@ function seedDemo(store) {
       uid: `seed-${i + 1}`,
     });
   });
-  return rows.length;
+
+  // 월 격자의 가로지르는 막대를 확인하려면 여러 날에 걸친 일정이 있어야 한다(D-10)
+  const day = (n) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + n);
+    return d.toISOString();
+  };
+  const spans = [
+    ['제주 출장', 3, 8], // 주 경계를 넘는다
+    ['개발 워크숍', 1, 3],
+  ];
+  spans.forEach(([title, from, to], i) => {
+    store.addEvent({
+      calendarId: cal,
+      title,
+      startsAt: day(from),
+      endsAt: day(to),
+      allDay: 1,
+      uid: `seed-span-${i + 1}`,
+    });
+  });
+
+  return rows.length + spans.length;
 }
 
 // 트레이 아이콘. 비어 있으면 Windows 트레이에 아무것도 안 뜨고, 그러면 앱을 끌 방법이

@@ -5,6 +5,7 @@ const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const TABS = [
   { key: 'today', label: '오늘' },
   { key: 'week', label: '주' },
+  { key: 'month', label: '월' },
   { key: 'subs', label: '구독' },
 ];
 const CAL_COLORS = [1, 2, 3, 4, 5, 6];
@@ -215,6 +216,186 @@ function renderWeek(now) {
   el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
+// 월 격자 (WIN-05·WIN-06)
+//
+// 조회는 화면에 보이는 6주를 한 번에 한다. 그 안에서 여러 날에 걸친 일정만 따로 뽑아
+// 주마다 레인을 배치하고, 하루짜리는 각 칸의 점으로 찍는다.
+
+function dayKey(d) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// 일정이 덮는 날의 범위. 종일 일정의 끝은 배타적(다음 날 0시)이라 1ms를 빼고 본다.
+function daySpan(ev) {
+  const s = startOfDay(new Date(ev.startsAt));
+  const raw = ev.endsAt ? new Date(ev.endsAt) : new Date(ev.startsAt);
+  const endMs = ev.endsAt ? raw.getTime() - (ev.allDay ? 1 : 0) : raw.getTime();
+  const e = startOfDay(new Date(Math.max(endMs, s.getTime())));
+  return { from: s, to: e, multi: e > s };
+}
+
+function monthGridStart(anchor) {
+  return mondayOf(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
+}
+
+function renderMonth(now) {
+  const anchor = state.anchor;
+  el.dateLabel.textContent = `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월`;
+
+  const gridStart = monthGridStart(anchor);
+  const byDay = new Map();
+  const multi = [];
+  for (const ev of state.events) {
+    const sp = daySpan(ev);
+    if (sp.multi) {
+      multi.push({ ev, ...sp });
+      continue;
+    }
+    const k = dayKey(sp.from);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(ev);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mon';
+
+  const dow = document.createElement('div');
+  dow.className = 'dow';
+  ['월', '화', '수', '목', '금', '토', '일'].forEach((d, i) => {
+    const sp = document.createElement('span');
+    if (i >= 5) sp.className = 'we';
+    sp.textContent = d;
+    dow.append(sp);
+  });
+  wrap.append(dow);
+
+  const cells = document.createElement('div');
+  cells.className = 'cells';
+
+  for (let w = 0; w < 6; w++) {
+    const rowStart = addDays(gridStart, w * 7);
+    const rowEnd = addDays(rowStart, 6);
+    const row = document.createElement('div');
+    row.className = 'wkrow';
+
+    for (let d = 0; d < 7; d++) {
+      const day = addDays(rowStart, d);
+      const c = document.createElement('div');
+      c.className = 'c';
+      // 열을 명시해야 한다. 자동 배치에 맡기면 grid-column이 박힌 가로 막대가 칸을
+      // 점유하면서 **뒤 날짜들이 옆으로 밀려 사라진다** — 실제로 18~20일이 없어졌다.
+      c.style.gridColumn = `${d + 1} / ${d + 2}`;
+      if (day.getMonth() !== anchor.getMonth()) c.classList.add('out');
+      if (d >= 5) c.classList.add('we');
+      if (sameDay(day, now)) c.classList.add('today');
+      if (sameDay(day, state.anchor)) c.classList.add('sel');
+      c.dataset.day = day.toISOString();
+
+      const num = document.createElement('span');
+      num.className = 'dnum';
+      num.textContent = String(day.getDate());
+      c.append(num);
+
+      const list = byDay.get(dayKey(day)) ?? [];
+      list.slice(0, 2).forEach((ev) => {
+        const pin = document.createElement('span');
+        pin.className = 'pin';
+        const i = document.createElement('i');
+        i.style.background = `var(--cal-${ev.color ?? 1})`;
+        pin.append(i, document.createTextNode(ev.title));
+        c.append(pin);
+      });
+      if (list.length > 2) {
+        const plus = document.createElement('span');
+        plus.className = 'plus';
+        plus.textContent = `+${list.length - 2}`;
+        c.append(plus);
+      }
+      row.append(c);
+    }
+
+    // 이 주와 겹치는 다중일 일정 — 긴 것이 위 레인으로 간다(D-10)
+    const inWeek = multi
+      .filter((m) => m.from <= rowEnd && m.to >= rowStart)
+      .sort((a, b) => b.to - b.from - (a.to - a.from) || a.from - b.from);
+
+    const lanes = [[], []];
+    let overflow = 0;
+    for (const m of inWeek) {
+      const col0 = Math.max(0, Math.round((m.from - rowStart) / 86400000));
+      const col1 = Math.min(6, Math.round((m.to - rowStart) / 86400000));
+      const lane = lanes.findIndex((L) => L.every((x) => x.col1 < col0 || x.col0 > col1));
+      if (lane === -1) {
+        overflow++;
+        continue;
+      }
+      lanes[lane].push({ ...m, col0, col1 });
+    }
+
+    const used = lanes.filter((L) => L.length).length;
+    if (used) row.classList.add(used >= 2 || overflow ? 'lane2' : 'lane1');
+
+    lanes.forEach((lane, li) => {
+      for (const m of lane) {
+        const bar = document.createElement('div');
+        bar.className = 'span' + (li === 1 ? ' l2' : '');
+        bar.style.gridColumn = `${m.col0 + 1}/${m.col1 + 2}`;
+        bar.style.background = `var(--cal-${m.ev.color ?? 1})`;
+        // 주 경계를 넘으면 잘린 쪽 모서리를 각지게 해 이어짐을 알린다
+        if (m.from < rowStart) {
+          bar.classList.add('contL');
+          const ar = document.createElement('span');
+          ar.className = 'ar';
+          ar.textContent = '◂';
+          bar.append(ar);
+        }
+        bar.append(document.createTextNode(m.ev.title));
+        if (m.to > rowEnd) {
+          bar.classList.add('contR');
+          const ar = document.createElement('span');
+          ar.className = 'ar';
+          ar.textContent = '▸';
+          bar.append(ar);
+        }
+        row.append(bar);
+      }
+    });
+
+    if (overflow) {
+      const more = document.createElement('div');
+      more.className = 'morespan';
+      more.style.gridColumn = '7/8';
+      const sp = document.createElement('span');
+      sp.textContent = `+${overflow}`;
+      more.append(sp);
+      row.append(more);
+    }
+
+    cells.append(row);
+  }
+  wrap.append(cells);
+
+  // 칸에는 두 건까지만 적으므로, 고른 날의 전체는 아래 한 줄에 펼친다
+  const bar = document.createElement('div');
+  bar.className = 'daybar';
+  const b = document.createElement('b');
+  b.textContent = `${state.anchor.getMonth() + 1}월 ${state.anchor.getDate()}일 (${WEEK[state.anchor.getDay()]})`;
+  const sp = document.createElement('span');
+  sp.className = 's';
+  const picked = startOfDay(state.anchor);
+  const ofDay = state.events
+    .filter((ev) => {
+      const s2 = daySpan(ev);
+      return picked >= s2.from && picked <= s2.to;
+    })
+    .map((ev) => (ev.allDay ? ev.title : `${ev.title} ${hm(new Date(ev.startsAt))}`));
+  sp.textContent = ofDay.length ? ofDay.join(' · ') : '일정 없음';
+  bar.append(b, sp);
+  wrap.append(bar);
+
+  el.body.replaceChildren(wrap);
+}
+
 function renderSubs() {
   el.dateLabel.textContent = '';
   const frag = document.createDocumentFragment();
@@ -387,7 +568,9 @@ async function load() {
   const opts =
     state.tab === 'today'
       ? { day: state.anchor.toISOString(), days: 1 }
-      : { day: mondayOf(state.anchor).toISOString(), days: 7 };
+      : state.tab === 'month'
+        ? { day: monthGridStart(state.anchor).toISOString(), days: 42 }
+        : { day: mondayOf(state.anchor).toISOString(), days: 7 };
 
   const res = await window.cal.list(opts);
   state.events = res.events ?? [];
@@ -403,6 +586,7 @@ async function load() {
   });
 
   if (state.tab === 'today') renderToday(now);
+  else if (state.tab === 'month') renderMonth(now);
   else renderWeek(now);
 }
 
@@ -533,6 +717,37 @@ document.addEventListener('keydown', async (e) => {
     el.keys.classList.remove('hidden');
     return;
   }
+  // ── 월 탭에서만 듣는 키 — 격자는 목록이 아니라 날짜를 옮긴다 (WIN-05)
+  if (state.tab === 'month' && k !== 'Tab' && k !== '?' && k !== 'Escape' && k !== 'n' && k !== 'N' && k !== 'ㅜ') {
+    const step = { h: -1, ArrowLeft: null, l: 1, j: 7, k: -7, ArrowDown: 7, ArrowUp: -7 }[k];
+    if (step != null) {
+      e.preventDefault();
+      state.anchor = addDays(state.anchor, step);
+      await load();
+      return;
+    }
+    if (k === 'ArrowRight' || k === 'ArrowLeft') {
+      e.preventDefault();
+      const d = k === 'ArrowRight' ? 1 : -1;
+      state.anchor = new Date(state.anchor.getFullYear(), state.anchor.getMonth() + d, 1);
+      await load();
+      return;
+    }
+    if (k === 't' || k === 'T' || k === 'ㅅ') {
+      state.anchor = startOfDay(new Date());
+      await load();
+      return;
+    }
+    if (k === 'Enter') {
+      e.preventDefault();
+      state.tab = 'today';
+      state.cursor = 0;
+      await load();
+      return;
+    }
+    return;
+  }
+
   if (k === 'Tab') {
     e.preventDefault();
     const i = TABS.findIndex((t) => t.key === state.tab);
@@ -659,6 +874,7 @@ document.addEventListener('keydown', async (e) => {
 function rerender() {
   const now = new Date();
   if (state.tab === 'subs') renderSubs();
+  else if (state.tab === 'month') renderMonth(now);
   else if (state.tab === 'today') renderToday(now);
   else renderWeek(now);
 }
@@ -666,6 +882,12 @@ function rerender() {
 const selectedSub = () => state.subs.filter((c) => c.kind === 'subscription')[state.cursor] ?? null;
 
 el.body.addEventListener('click', (e) => {
+  const cell = e.target.closest('.mon .c');
+  if (cell?.dataset.day) {
+    state.anchor = new Date(cell.dataset.day);
+    rerender();
+    return;
+  }
   const row = e.target.closest('.ev');
   if (!row) return;
   const i = [...el.body.querySelectorAll('.ev')].indexOf(row);

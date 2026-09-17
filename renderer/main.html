@@ -315,6 +315,189 @@
         text-align: center;
       }
 
+      /* 월 격자 */
+      .mon {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .mon .dow {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+        padding-bottom: 5px;
+        flex: none;
+      }
+      .mon .dow span {
+        text-align: center;
+        font-size: 10.5px;
+        color: var(--text-muted);
+      }
+      .mon .dow span.we {
+        color: #8a6f78;
+      }
+      .mon .cells {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1;
+        min-height: 0;
+      }
+      .mon .wkrow {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+        flex: 1;
+        min-height: 0;
+      }
+      .mon .wkrow > .c {
+        grid-row: 1;
+      }
+      .mon .c {
+        background: var(--bg-inset);
+        border: 1px solid transparent;
+        border-radius: var(--r-sm);
+        padding: 4px 5px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+      }
+      .mon .c.out {
+        opacity: 0.32;
+      }
+      .mon .c.we .dnum {
+        color: #8a6f78;
+      }
+      .mon .c.today {
+        background: var(--accent-dim);
+      }
+      .mon .c.today .dnum {
+        color: var(--accent);
+        font-weight: 750;
+      }
+      .mon .c.sel {
+        border-color: var(--accent);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .mon .dnum {
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-variant-numeric: tabular-nums;
+      }
+      .mon .pin {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 9.5px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.55;
+      }
+      .mon .pin i {
+        width: 3px;
+        height: 9px;
+        border-radius: 2px;
+        flex: none;
+      }
+      .mon .plus {
+        font-size: 9.5px;
+        color: var(--text-muted);
+      }
+      /* 여러 날에 걸친 일정은 칸 위를 가로지른다. 레인은 두 줄까지(D-10) */
+      .mon .wkrow.lane1 > .c {
+        padding-top: 36px;
+      }
+      .mon .wkrow.lane2 > .c {
+        padding-top: 54px;
+      }
+      .mon .wkrow.lane1 > .c > .dnum,
+      .mon .wkrow.lane2 > .c > .dnum {
+        position: absolute;
+        top: 4px;
+        left: 6px;
+      }
+      .mon .span {
+        grid-row: 1;
+        z-index: 2;
+        align-self: start;
+        margin-top: 18px;
+        height: 15px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 7px;
+        border-radius: 4px;
+        font-size: 9.5px;
+        font-weight: 650;
+        white-space: nowrap;
+        overflow: hidden;
+        color: #15171c;
+      }
+      .mon .span.l2 {
+        margin-top: 36px;
+      }
+      .mon .span.contL {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        padding-left: 5px;
+      }
+      .mon .span.contR {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+        padding-right: 5px;
+      }
+      .mon .span .ar {
+        opacity: 0.55;
+        font-size: 10px;
+      }
+      .mon .morespan {
+        grid-row: 1;
+        z-index: 3;
+        align-self: start;
+        margin-top: 36px;
+        height: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 3px;
+      }
+      .mon .morespan span {
+        font-size: 9.5px;
+        font-weight: 650;
+        color: var(--text-secondary);
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0 5px;
+        line-height: 13px;
+      }
+      .mon .daybar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 9px 2px 2px;
+        border-top: 1px solid var(--border);
+        margin-top: 8px;
+        font-size: var(--fs-xs);
+        flex: none;
+      }
+      .mon .daybar b {
+        font-weight: 640;
+        color: var(--text-secondary);
+      }
+      .mon .daybar .s {
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       /* 구독 탭 */
       .sub {
         display: flex;
@@ -620,7 +803,8 @@
         <div class="kgrp">이동</div>
         <div class="krow"><kbd>Tab</kbd><span>탭 전환</span></div>
         <div class="krow"><kbd>j</kbd><kbd>k</kbd><span>위아래</span></div>
-        <div class="krow"><kbd>←</kbd><kbd>→</kbd><span>날짜·주 이동</span></div>
+        <div class="krow"><kbd>←</kbd><kbd>→</kbd><span>날짜·주·달 이동</span></div>
+        <div class="krow"><kbd>hjkl</kbd><span>월 격자에서 날짜 옮기기</span></div>
         <div class="krow"><kbd>t</kbd><span>오늘로</span></div>
         <div class="kgrp">일정</div>
         <div class="krow"><kbd>N</kbd><span>새 일정 (한 줄)</span></div>
