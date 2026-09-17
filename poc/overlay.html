@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>whencalendar overlay</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; background:transparent; overflow:hidden;
+    font-family:"Pretendard","Segoe UI",system-ui,sans-serif;
+    -webkit-user-select:none; cursor:default;
+  }
+
+  #stage { position:relative; width:100%; height:100%;
+           display:flex; justify-content:center; align-items:flex-start; padding-top:7px; }
+
+  .isle {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(18,21,27,.96); color:#eef2f8;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:24px;
+    padding:4px calc(6px + var(--rv) * 9px) 4px 5px;
+    box-shadow:0 7px 26px rgba(0,0,0,.5);
+    white-space:nowrap;
+    opacity:var(--vis);
+    transition:padding .45s cubic-bezier(.2,.9,.3,1),
+               opacity .4s ease, gap .4s ease;
+  }
+  .isle.hover { padding-right:15px; opacity:1; }
+
+  svg.ring { width:var(--rsz); height:var(--rsz); flex:none; overflow:visible; display:block; }
+  .ring .bg { stroke:rgba(140,148,160,.26); }
+  .ring .fg { stroke:var(--col); stroke-linecap:round;
+              transition:stroke-dashoffset .18s linear, stroke .45s ease; }
+
+  .txt { display:flex; align-items:baseline; gap:8px; overflow:hidden;
+         max-width:calc(var(--rv) * 340px); opacity:var(--rv);
+         transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+  .isle.hover .txt { max-width:340px; opacity:1; }
+  .t    { font-size:12.5px; font-weight:640; letter-spacing:-.15px; }
+  .left { font-size:12.5px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--col); }
+
+  /* ① 남은 일정 점 */
+  .dots { display:flex; gap:4px; align-items:center; overflow:hidden;
+          max-width:calc(var(--rv) * 70px); opacity:var(--rv);
+          transition:max-width .45s, opacity .3s; }
+  .isle.hover .dots { max-width:70px; opacity:1; }
+  .dots i { width:4px; height:4px; border-radius:50%; background:rgba(150,160,175,.42); flex:none; }
+  .dots i.next { background:var(--col); }
+
+  /* ⑧ 진행 중 / 곧 종료 배지 */
+  .badge { font-size:9.5px; font-weight:700; letter-spacing:.2px;
+           padding:2px 7px; border-radius:6px;
+           background:var(--bdgbg); color:var(--col);
+           overflow:hidden; max-width:calc(var(--rv) * 100px); opacity:var(--rv);
+           transition:max-width .45s, opacity .3s, background .45s; }
+  .isle.hover .badge { max-width:100px; opacity:1; }
+
+  /* 호버로만 열리는 다음 일정 */
+  .more { font-size:10.5px; color:#9aa3b2; overflow:hidden;
+          max-width:0; opacity:0; padding-left:0;
+          border-left:1px solid transparent;
+          transition:max-width .4s cubic-bezier(.2,.9,.3,1), opacity .28s,
+                     padding-left .4s, border-color .3s; }
+  .isle.hover .more { max-width:260px; opacity:1; padding-left:10px;
+                      border-left-color:rgba(255,255,255,.14); }
+
+  .beat .isle { animation:breathe 1.7s ease-in-out infinite; }
+  @keyframes breathe {
+    0%,100% { box-shadow:0 7px 26px rgba(0,0,0,.5); }
+    50%     { box-shadow:0 7px 26px rgba(0,0,0,.5), 0 0 0 3px var(--glow); }
+  }
+
+  /* 조작할 때만 잠깐 뜨는 안내 */
+  #hud {
+    position:absolute; top:52px; left:50%; transform:translateX(-50%);
+    background:rgba(14,16,21,.95); border:1px solid rgba(255,255,255,.1);
+    border-radius:9px; padding:7px 13px; color:#cfd6e2;
+    font-size:11px; line-height:1.6; white-space:nowrap;
+    opacity:0; transition:opacity .3s ease; text-align:center;
+  }
+  #hud.show { opacity:1; }
+  #hud b { color:#7fd0ff; }
+  #hud .k { color:#8b93a1; font-size:10.5px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="isle" id="isle">
+    <svg class="ring" viewBox="0 0 24 24">
+      <circle class="bg" cx="12" cy="12" r="9" fill="none" stroke-width="2.6"/>
+      <circle class="fg" id="arc" cx="12" cy="12" r="9" fill="none" stroke-width="2.6"
+              transform="rotate(-90 12 12)"/>
+    </svg>
+    <span class="txt"><span class="t" id="title"></span><span class="left" id="left"></span></span>
+    <span class="dots" id="dots"></span>
+    <span class="badge" id="badge"></span>
+    <span class="more" id="more"></span>
+  </div>
+  <div id="hud"></div>
+</div>
+
+<script>
+const R = 9, CIRC = 2 * Math.PI * R;
+const TEAL = [110,206,175], GRAY = [150,160,175];
+
+const isle  = document.getElementById("isle");
+const arc   = document.getElementById("arc");
+const elT   = document.getElementById("title");
+const elL   = document.getElementById("left");
+const elD   = document.getElementById("dots");
+const elB   = document.getElementById("badge");
+const elM   = document.getElementById("more");
+const hud   = document.getElementById("hud");
+
+let hudTimer = null, hovering = false, last = null;
+
+function lerp (a,b,t) { return a+(b-a)*t; }
+function mix (c1,c2,t) { return [0,1,2].map(function(i){ return Math.round(lerp(c1[i],c2[i],t)); }); }
+function rgbFor (p) {
+  const CALM=[110,196,255], WARN=[255,194,86], URGE=[255,72,72];
+  return p<.5 ? mix(CALM,WARN,p/.5) : mix(WARN,URGE,(p-.5)/.5);
+}
+function css (c)    { return "rgb("+c[0]+","+c[1]+","+c[2]+")"; }
+function cssA (c,a) { return "rgba("+c[0]+","+c[1]+","+c[2]+","+a+")"; }
+
+function hhmm (min) {
+  const h = Math.floor(min/60), m = Math.floor(min%60);
+  return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+}
+function fmtLeft (sec) {
+  const m = Math.floor(sec/60);
+  if (m >= 60) return Math.floor(m/60)+"시간 "+(m%60)+"분";
+  if (m >= 1)  return m+"분 남음";
+  return Math.max(0,Math.round(sec))+"초 남음";
+}
+function fmtEnd (sec) {
+  const m = Math.floor(sec/60);
+  if (m >= 1) return m+"분 뒤 종료";
+  return Math.max(0,Math.round(sec))+"초 뒤 종료";
+}
+function reveal (sec) {
+  if (sec > 1800) return 0;
+  if (sec <= 600) return 1;
+  return (1800 - sec) / 1200;
+}
+
+function stateAt (now, AG) {
+  const cur  = AG.filter(function (e) { return now >= e.from && now < e.to; })[0];
+  const rest = AG.filter(function (e) { return e.from > now; });
+  if (cur)  return { mode:"during", ev:cur, leftSec:(cur.to-now)*60, span:(cur.to-cur.from)*60, rest:rest, next:rest[0]||null };
+  if (!rest.length) return { mode:"done", rest:[], next:null };
+  return { mode:"upcoming", ev:rest[0], leftSec:(rest[0].from-now)*60, rest:rest, next:rest[1]||null };
+}
+
+function render (p) {
+  last = p;
+  const st = stateAt(p.now, p.agenda);
+  const s  = document.documentElement.style;
+  s.setProperty("--rsz", p.ringSize + "px");
+
+  let rv, col, ratio, title, leftTxt, badge, beat, vis = 1;
+
+  if (st.mode === "upcoming") {
+    const pr = 1 - Math.min(1, st.leftSec/3600);
+    col     = rgbFor(pr);
+    rv      = reveal(st.leftSec);
+    ratio   = Math.min(1, st.leftSec/3600);
+    title   = st.ev.t;
+    leftTxt = fmtLeft(st.leftSec);
+    badge   = "";
+    beat    = st.leftSec <= 60;
+
+  } else if (st.mode === "during") {
+    const endSoon = st.leftSec <= 300;          // ⑧ 끝 5분 전
+    rv      = 1;
+    col     = endSoon ? rgbFor(0.78) : TEAL;
+    ratio   = Math.min(1, st.leftSec / st.span);
+    title   = st.ev.t;
+    leftTxt = fmtEnd(st.leftSec);
+    badge   = endSoon ? "곧 종료" : "진행 중";
+    beat    = st.leftSec <= 60;
+
+  } else {
+    rv = 0; col = GRAY; ratio = 0; title = ""; leftTxt = ""; badge = ""; beat = false;
+    vis = hovering ? 1 : 0;                      // 오늘 끝나면 숨는다
+  }
+
+  s.setProperty("--rv",  rv.toFixed(3));
+  s.setProperty("--vis", vis.toFixed(3));
+  s.setProperty("--col", css(col));
+  s.setProperty("--glow", cssA(col, .45));
+  s.setProperty("--bdgbg", badge ? cssA(col,.18) : "transparent");
+
+  arc.style.strokeDasharray  = CIRC;
+  arc.style.strokeDashoffset = CIRC * (1 - ratio);
+
+  elT.textContent = title;
+  elL.textContent = leftTxt;
+  elB.textContent = badge;
+  elB.style.display = badge ? "" : "none";
+
+  elD.innerHTML = st.rest.map(function (_, i) {
+    return '<i class="' + (i === 0 ? "next" : "") + '"></i>';
+  }).join("");
+
+  elM.textContent = st.next
+    ? ("그 다음 " + st.next.t + " · " + hhmm(st.next.from))
+    : (st.mode === "done" ? "오늘 남은 일정 없음" : "오늘 이게 마지막");
+
+  document.body.classList.toggle("beat", beat);
+
+  if (p.hud) showHud(p, st);
+}
+
+function showHud (p, st) {
+  const mode = st.mode === "during" ? "진행 중"
+             : st.mode === "done"   ? "오늘 끝" : "다가옴";
+  hud.innerHTML =
+    "<b>" + hhmm(p.now) + "</b> · " + mode +
+    (p.live ? " · 실제 시각" : p.playing ? " · 재생 중" : "") +
+    ' · 링 ' + p.ringSize + "px" +
+    '<br><span class="k">Ctrl+Alt+ P재생 L실시각 ←→10분 1/2/3링크기 0리셋 Q종료</span>';
+  hud.classList.add("show");
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(function () { hud.classList.remove("show"); }, 4200);
+}
+
+// 호버 감지 — 창은 클릭을 통과시키되 마우스 이동만 받는다
+document.addEventListener("mousemove", function (e) {
+  const r = isle.getBoundingClientRect();
+  const inside = e.clientX >= r.left && e.clientX <= r.right &&
+                 e.clientY >= r.top  && e.clientY <= r.bottom;
+  if (inside === hovering) return;
+  hovering = inside;
+  isle.classList.toggle("hover", inside);
+  window.overlay.setHover(inside);
+  if (last) render(last);
+});
+
+window.overlay.onState(render);
+</script>
+</body>
+</html>

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whencalendar — ⑨+⑩ 상태 흐름 10</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#161920; --line:#252a34;
+    --fg:#e8ecf3; --dim:#8b93a1; --accent:#7fd0ff;
+    --screen:#12151b; --screen-line:#1b2028;
+    --isbg:rgba(18,21,27,.97); --isfg:#eef2f8; --isbd:rgba(255,255,255,.12);
+    --track:rgba(140,148,160,.26);
+    --ringsz:20px;
+  }
+  body.light {
+    --bg:#eef1f5; --panel:#fff; --line:#dde2ea;
+    --fg:#1a1d24; --dim:#6b7280; --accent:#0a7ea4;
+    --screen:#fbfcfe; --screen-line:#e8ecf2;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--fg);
+         font-family:"Pretendard","Segoe UI",system-ui,sans-serif;
+         padding:26px 20px 70px; transition:background .25s,color .25s; }
+  .wrap { max-width:1420px; margin:0 auto; }
+  h1 { font-size:20px; font-weight:650; letter-spacing:-.4px; margin-bottom:5px; }
+  .sub { color:var(--dim); font-size:13.5px; line-height:1.7; margin-bottom:18px; }
+  .sub b { color:var(--fg); }
+
+  .bar { position:sticky; top:0; z-index:30;
+         background:var(--panel); border:1px solid var(--line); border-radius:13px;
+         padding:13px 18px; margin-bottom:12px;
+         display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+         box-shadow:0 6px 22px rgba(0,0,0,.22); }
+  .bar input[type=range] { flex:1; min-width:180px; accent-color:var(--accent); height:4px; }
+  .clock { font-variant-numeric:tabular-nums; font-size:23px; font-weight:700; min-width:76px; letter-spacing:-.6px; }
+  .st { font-size:12px; font-weight:650; padding:3px 11px; border-radius:20px;
+        background:var(--stbg); color:var(--stfg); white-space:nowrap; }
+  button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+           padding:8px 12px; font-size:12.5px; cursor:pointer; font-family:inherit; transition:border-color .15s; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#0b0d11; border-color:var(--accent); font-weight:600; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; border-right:1px solid var(--line); }
+  .seg button:last-child { border-right:none; }
+  .lbl { font-size:11.5px; color:var(--dim); margin-right:-8px; }
+
+  /* 하루 타임라인 */
+  .day { background:var(--panel); border:1px solid var(--line); border-radius:11px;
+         padding:13px 18px 16px; margin-bottom:24px; }
+  .dayline { position:relative; height:26px; }
+  .dayline .base { position:absolute; left:0; right:0; top:11px; height:4px;
+                   background:rgba(140,148,160,.18); border-radius:2px; }
+  .dayline .ev { position:absolute; top:6px; height:14px; border-radius:3px;
+                 background:rgba(140,148,160,.45); }
+  .dayline .ev.act { background:var(--colSolid); }
+  .dayline .ev span { position:absolute; top:17px; left:0; font-size:10px; color:var(--dim); white-space:nowrap; }
+  .dayline .cursor { position:absolute; top:1px; bottom:1px; width:2px;
+                     background:var(--accent); box-shadow:0 0 8px var(--accent); transition:left .1s linear; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(390px,1fr)); gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:15px; }
+  .card h2 { font-size:14px; font-weight:650; margin-bottom:3px; }
+  .card .desc { font-size:12px; color:var(--dim); line-height:1.6; margin-bottom:11px; min-height:46px; }
+  .card .desc em { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .screen { position:relative; aspect-ratio:16/9; border-radius:8px; overflow:hidden;
+            background:var(--screen); border:1px solid var(--line); }
+  .fake { position:absolute; inset:0; padding:26px 16px 16px; opacity:.8; }
+  .fake .ln { height:7px; border-radius:3px; background:var(--screen-line); margin-bottom:9px; }
+  .ov { position:absolute; inset:0; pointer-events:none; }
+
+  .actual { margin-top:10px; padding:16px 12px; border-radius:8px;
+            background:linear-gradient(135deg,#1d2330,#141821);
+            display:flex; justify-content:center; align-items:center; min-height:62px;
+            border:1px solid rgba(255,255,255,.05); }
+  .capnote { font-size:10.5px; color:var(--dim); text-align:center; margin-top:5px; }
+
+  /* ───── 아일랜드 ───── */
+  .isle {
+    position:absolute; top:8px; left:50%; transform:translateX(-50%);
+    background:var(--isbg); color:var(--isfg);
+    border:1px solid var(--isbd); border-radius:24px;
+    display:flex; align-items:center; gap:8px;
+    padding:4px calc(6px + var(--rv)*9px) 4px 5px;
+    box-shadow:0 7px 24px rgba(0,0,0,.45); white-space:nowrap;
+    pointer-events:auto;
+    transition:padding .45s cubic-bezier(.2,.9,.3,1), gap .4s ease, opacity .4s ease;
+  }
+  .actual .isle { position:static; transform:none; }
+  .isle.hidden { opacity:0; }
+
+  .isle .txt { display:flex; align-items:baseline; gap:8px; overflow:hidden;
+               max-width:calc(var(--rv) * 320px); opacity:var(--rv);
+               transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+  .isle .t    { font-size:12px; font-weight:640; letter-spacing:-.1px; }
+  .isle .left { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--iCol); }
+
+  svg.ring { width:var(--ringsz); height:var(--ringsz); flex:none; overflow:visible; display:block; }
+  .ring .bg { stroke:var(--track); }
+  .ring .fg { stroke:var(--iCol); stroke-linecap:round; transition:stroke-dashoffset .1s linear, stroke .4s ease; }
+
+  .dots { display:flex; gap:3.5px; align-items:center; overflow:hidden;
+          max-width:calc(var(--rv) * 70px); opacity:var(--rv); transition:max-width .45s, opacity .3s; }
+  .dots i { width:4px; height:4px; border-radius:50%; background:rgba(150,160,175,.42); flex:none; }
+  .dots i.next { background:var(--iCol); }
+  .dots .cnt { font-size:10px; font-weight:700; color:#9aa3b2; margin-left:2px; }
+
+  .bars { display:flex; gap:2.5px; align-items:flex-end; height:11px; overflow:hidden;
+          max-width:calc(var(--rv) * 70px); opacity:var(--rv); transition:max-width .45s, opacity .3s; }
+  .bars i { width:3px; border-radius:1.5px; background:rgba(150,160,175,.42); flex:none; }
+  .bars i.next { background:var(--iCol); }
+
+  .badge { font-size:9.5px; font-weight:700; letter-spacing:.2px; padding:1.5px 6px; border-radius:6px;
+           background:var(--bdgBg); color:var(--bdgFg); overflow:hidden;
+           max-width:calc(var(--rv) * 96px); opacity:var(--rv);
+           transition:max-width .45s, opacity .3s, background .4s, color .4s; }
+
+  .more { font-size:10.5px; color:#9aa3b2; overflow:hidden; white-space:nowrap;
+          max-width:0; opacity:0; padding-left:0; border-left:1px solid transparent;
+          transition:max-width .4s cubic-bezier(.2,.9,.3,1), opacity .28s, padding-left .4s, border-color .3s; }
+  .isle:hover .txt   { max-width:320px; opacity:1; }
+  .isle:hover .more  { max-width:240px; opacity:1; padding-left:9px; border-left-color:rgba(255,255,255,.14); }
+  .isle:hover .dots,
+  .isle:hover .bars,
+  .isle:hover .badge { max-width:96px; opacity:1; }
+  .isle:hover        { padding-right:14px; opacity:1 !important; }
+
+  .beat .isle { animation:breathe 1.7s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{ box-shadow:0 7px 24px rgba(0,0,0,.45); }
+                       50%{ box-shadow:0 7px 24px rgba(0,0,0,.45), 0 0 0 3px var(--iGlow); } }
+
+  .note { margin-top:30px; padding:15px 18px; border-radius:11px;
+          background:var(--panel); border:1px solid var(--line);
+          font-size:12.5px; color:var(--dim); line-height:1.85; }
+  .note b { color:var(--fg); }
+  kbd { background:var(--line); border-radius:4px; padding:1px 6px; font-family:inherit; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>⑨ 남은 일정 점 + ⑩ 진행 중 — 상태 흐름 10</h1>
+  <p class="sub">
+    이제 슬라이더는 남은 시간이 아니라 <b>하루의 시각</b>입니다. 13:00부터 17:40까지 흘려보내면
+    아일랜드가 <b>다가옴 → 진행 중 → 다시 다가옴 → 오늘 끝</b>으로 스스로 상태를 바꿉니다.
+    <b>자동재생</b>을 누르고 아래 타임라인 커서를 같이 보세요. 마우스를 올리면 펼쳐집니다.
+  </p>
+
+  <div class="bar">
+    <span class="clock" id="clock">13:00</span>
+    <span class="st" id="stBadge">잠잠</span>
+    <input type="range" id="slider" min="780" max="1060" step="0.5" value="780">
+    <button id="play">▶ 자동재생</button>
+    <span class="lbl">링 크기</span>
+    <span class="seg">
+      <button data-sz="16">16</button>
+      <button data-sz="20" class="on">20</button>
+      <button data-sz="26">26</button>
+    </span>
+    <button id="theme">화면 밝게</button>
+  </div>
+
+  <div class="day">
+    <div class="dayline" id="dayline"><div class="base"></div><div class="cursor" id="cursor"></div></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="note">
+    <b>상태 규칙</b> — 60분 이상 남으면 점만(접힘). 30분부터 펼쳐지고 10분에 완전히. 5분부터 붉어지고 1분에 숨 쉽니다.
+    일정이 시작되면 <b>진행 중</b>으로 바뀌며 색이 중립(청록)이 되고, 링은 끝날 때까지를 셉니다.
+    오늘 남은 일정이 없으면 조용히 접힙니다.<br>
+    <b>호버</b> — 어느 상태에서든 마우스를 올리면 펼쳐지고 그 다음 일정까지 따라옵니다.<br>
+    <b>이전 단계</b> — <kbd>ring.html</kbd> · <kbd>island.html</kbd> · <kbd>compare.html</kbd>
+  </div>
+
+</div>
+
+<script>
+// 오늘 일정 (분 단위)
+const AG = [
+  { t:"주간 회의",   from:840,  to:900  },  // 14:00~15:00
+  { t:"디자인 리뷰", from:930,  to:975  },  // 15:30~16:15
+  { t:"1:1 미팅",    from:1020, to:1050 }   // 17:00~17:30
+];
+const T0 = 780, T1 = 1060;   // 13:00 ~ 17:40
+
+const V = [
+  { key:"a", title:"① 점 3개 (기준)", dots:"points", during:"teal",
+    desc:"⑨+⑩ 그대로. 다음 일정만 색이 들어오고 나머지는 회색 점." },
+  { key:"b", title:"② 점 + 개수", dots:"count", during:"teal",
+    desc:"점이 많아지면 지저분하니 <em>두 개까지만 찍고 +N</em>으로 줄인다." },
+  { key:"c", title:"③ 막대 (길이 = 일정 길이)", dots:"bars", during:"teal",
+    desc:"점 대신 세로 막대. 긴 회의와 짧은 회의가 <em>높이로</em> 구분된다." },
+  { key:"d", title:"④ 점 없음", dots:"none", during:"teal",
+    desc:"다음 하나만 말한다. 가장 조용하지만 오늘의 부담은 안 보인다." },
+  { key:"e", title:"⑤ 진행 중 — 회색", dots:"points", during:"gray",
+    desc:"진행 중엔 <em>완전히 물러난다.</em> 회의에 집중하라는 쪽." },
+  { key:"f", title:"⑥ 진행 중 — 종료 시각", dots:"points", during:"endtime",
+    desc:"남은 시간 대신 <em>몇 시에 끝나는지</em>를 띄운다. 다음 약속 잡을 때 유용." },
+  { key:"g", title:"⑦ 진행 중 — 경과 차오름", dots:"points", during:"fill",
+    desc:"링이 줄지 않고 <em>채워진다.</em> 얼마나 했는지가 보인다." },
+  { key:"h", title:"⑧ 끝나기 5분 전 경고", dots:"points", during:"warnend",
+    desc:"회의 종료 5분 전에 다시 색이 들어온다. <em>마무리하라는 신호.</em>" },
+  { key:"i", title:"⑨ 연속 일정 예고", dots:"points", during:"chain",
+    desc:"진행 중에도 다음이 <em>30분 안</em>이면 미리 붙여 보여준다." },
+  { key:"j", title:"⑩ 오늘 끝 — 명시", dots:"points", during:"teal", doneWord:true,
+    desc:"남은 일정이 없으면 사라지는 대신 <em>「오늘 일정 끝」</em>을 한 번 띄운다." }
+];
+
+function lines () {
+  return [58,34,76,50,22,68,44,84].map(function (w) {
+    return '<div class="ln" style="width:'+w+'%"></div>';
+  }).join("");
+}
+const R = 9;
+
+function isleHtml () {
+  return '<div class="isle">' +
+    '<svg class="ring" viewBox="0 0 24 24">' +
+      '<circle class="bg" cx="12" cy="12" r="9" fill="none" stroke-width="2.6"/>' +
+      '<circle class="fg" data-arc cx="12" cy="12" r="9" fill="none" stroke-width="2.6" transform="rotate(-90 12 12)"/>' +
+    "</svg>" +
+    '<span class="txt"><span class="t" data-t></span><span class="left" data-left></span></span>' +
+    '<span class="extra" data-extra></span>' +
+    '<span class="badge" data-badge></span>' +
+    '<span class="more" data-more></span>' +
+  "</div>";
+}
+
+// 하루 타임라인 그리기
+const dayline = document.getElementById("dayline");
+AG.forEach(function (e, i) {
+  const l = (e.from - T0) / (T1 - T0) * 100;
+  const w = (e.to - e.from) / (T1 - T0) * 100;
+  dayline.insertAdjacentHTML("beforeend",
+    '<div class="ev" data-ev="'+i+'" style="left:'+l.toFixed(2)+'%;width:'+w.toFixed(2)+'%">' +
+    "<span>"+hhmm(e.from)+" "+e.t+"</span></div>");
+});
+
+const grid = document.getElementById("grid");
+V.forEach(function (v) {
+  grid.insertAdjacentHTML("beforeend",
+    '<div class="card" data-k="'+v.key+'"><h2>'+v.title+'</h2><div class="desc">'+v.desc+"</div>" +
+    '<div class="screen"><div class="fake">'+lines()+"</div>" +
+      '<div class="ov">'+isleHtml()+"</div></div>" +
+    '<div class="actual">'+isleHtml()+"</div>" +
+    '<div class="capnote">↑ 실물 크기 · 마우스를 올려보세요</div></div>');
+});
+
+const slider = document.getElementById("slider");
+const clock  = document.getElementById("clock");
+const stBadge= document.getElementById("stBadge");
+const cursor = document.getElementById("cursor");
+const playBtn= document.getElementById("play");
+const themeBtn = document.getElementById("theme");
+let timer = null;
+
+function hhmm (min) {
+  const h = Math.floor(min/60), m = Math.round(min%60);
+  return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+}
+function lerp (a,b,t) { return a+(b-a)*t; }
+function mix (c1,c2,t) { return [0,1,2].map(function(i){ return Math.round(lerp(c1[i],c2[i],t)); }); }
+function rgbFor (p) {
+  const CALM=[110,196,255], WARN=[255,194,86], URGE=[255,72,72];
+  return p<.5 ? mix(CALM,WARN,p/.5) : mix(WARN,URGE,(p-.5)/.5);
+}
+function css (c) { return "rgb("+c[0]+","+c[1]+","+c[2]+")"; }
+function cssA (c,a) { return "rgba("+c[0]+","+c[1]+","+c[2]+","+a+")"; }
+
+const TEAL = [110,206,175], GRAY = [150,160,175];
+
+function fmtLeft (sec) {
+  const m = Math.floor(sec/60);
+  if (m >= 60) return Math.floor(m/60)+"시간 "+(m%60)+"분";
+  if (m >= 1)  return m+"분 남음";
+  return Math.max(0,Math.round(sec))+"초 남음";
+}
+function fmtEnd (sec) {
+  const m = Math.floor(sec/60);
+  if (m >= 1) return m+"분 뒤 종료";
+  return Math.max(0,Math.round(sec))+"초 뒤 종료";
+}
+
+// 현재 시각에서 앱 상태를 계산한다 — 이게 실제 앱 로직이 된다
+function stateAt (now) {
+  const cur = AG.filter(function (e) { return now >= e.from && now < e.to; })[0];
+  const rest = AG.filter(function (e) { return e.from > now; });
+  if (cur) {
+    return { mode:"during", ev:cur, leftSec:(cur.to-now)*60, span:(cur.to-cur.from)*60,
+             rest:rest, next:rest[0] || null };
+  }
+  if (!rest.length) return { mode:"done", rest:[], next:null };
+  return { mode:"upcoming", ev:rest[0], leftSec:(rest[0].from-now)*60, rest:rest, next:rest[1] || null };
+}
+
+function reveal (sec) {
+  if (sec > 1800) return 0;
+  if (sec <= 600) return 1;
+  return (1800 - sec) / 1200;
+}
+
+function renderOne (card, v, st, now) {
+  const isles = card.querySelectorAll(".isle");
+  let rv, colArr, ratio, title, leftTxt, badgeTxt, badgeOn, beat, hidden = false;
+
+  if (st.mode === "upcoming") {
+    const p = 1 - Math.min(1, st.leftSec/3600);
+    colArr  = rgbFor(p);
+    rv      = reveal(st.leftSec);
+    ratio   = Math.min(1, st.leftSec/3600);
+    title   = st.ev.t;
+    leftTxt = fmtLeft(st.leftSec);
+    badgeTxt = ""; badgeOn = false;
+    beat = st.leftSec <= 60;
+
+  } else if (st.mode === "during") {
+    const endSoon = st.leftSec <= 300;
+    rv = 1;
+    title = st.ev.t;
+    ratio = Math.min(1, st.leftSec / st.span);
+    beat = false;
+
+    if (v.during === "gray") {
+      colArr = GRAY; leftTxt = fmtEnd(st.leftSec); badgeTxt = ""; badgeOn = false;
+    } else if (v.during === "endtime") {
+      colArr = TEAL; leftTxt = "~ " + hhmm(st.ev.to); badgeTxt = "진행 중"; badgeOn = true;
+    } else if (v.during === "fill") {
+      colArr = TEAL; leftTxt = fmtEnd(st.leftSec); badgeTxt = "진행 중"; badgeOn = true;
+      ratio = 1 - ratio;                       // 경과를 채운다
+    } else if (v.during === "warnend") {
+      colArr = endSoon ? rgbFor(0.75) : TEAL;
+      leftTxt = fmtEnd(st.leftSec);
+      badgeTxt = endSoon ? "곧 종료" : "진행 중"; badgeOn = true;
+      beat = st.leftSec <= 60;
+    } else if (v.during === "chain") {
+      const gap = st.next ? (st.next.from - st.ev.to) : 999;
+      colArr = TEAL; leftTxt = fmtEnd(st.leftSec);
+      badgeTxt = (st.next && gap <= 30) ? "다음 " + hhmm(st.next.from) : "진행 중";
+      badgeOn = true;
+    } else {
+      colArr = TEAL; leftTxt = fmtEnd(st.leftSec); badgeTxt = "진행 중"; badgeOn = true;
+    }
+
+  } else {
+    colArr = GRAY; rv = v.doneWord ? 1 : 0; ratio = 0;
+    title = v.doneWord ? "오늘 일정 끝" : "";
+    leftTxt = ""; badgeTxt = ""; badgeOn = false; beat = false;
+    hidden = !v.doneWord;
+  }
+
+  card.style.setProperty("--rv", rv.toFixed(3));
+  card.style.setProperty("--iCol", css(colArr));
+  card.style.setProperty("--iGlow", cssA(colArr,.42));
+  card.style.setProperty("--bdgBg", badgeOn ? cssA(colArr,.18) : "transparent");
+  card.style.setProperty("--bdgFg", css(colArr));
+  card.classList.toggle("beat", beat);
+
+  isles.forEach(function (isle) {
+    isle.classList.toggle("hidden", hidden);
+    isle.querySelector("[data-t]").textContent    = title;
+    isle.querySelector("[data-left]").textContent = leftTxt;
+
+    const arc = isle.querySelector("[data-arc]");
+    const c = 2*Math.PI*R;
+    arc.style.strokeDasharray  = c;
+    arc.style.strokeDashoffset = c * (1 - ratio);
+
+    const b = isle.querySelector("[data-badge]");
+    b.textContent = badgeTxt;
+    b.style.display = badgeTxt ? "" : "none";
+
+    // 남은 일정 표시
+    const ex = isle.querySelector("[data-extra]");
+    ex.className = "extra";
+    ex.innerHTML = "";
+    const rest = st.rest;
+    if (v.dots === "points" && rest.length) {
+      ex.className = "dots";
+      ex.innerHTML = rest.map(function (_, i) { return '<i class="'+(i===0?"next":"")+'"></i>'; }).join("");
+    } else if (v.dots === "count" && rest.length) {
+      ex.className = "dots";
+      const shown = Math.min(2, rest.length);
+      let h = "";
+      for (let i=0;i<shown;i++) h += '<i class="'+(i===0?"next":"")+'"></i>';
+      if (rest.length > shown) h += '<span class="cnt">+'+(rest.length-shown)+"</span>";
+      ex.innerHTML = h;
+    } else if (v.dots === "bars" && rest.length) {
+      ex.className = "bars";
+      ex.innerHTML = rest.map(function (e, i) {
+        const hgt = Math.max(4, Math.min(11, (e.to-e.from)/60*7));
+        return '<i class="'+(i===0?"next":"")+'" style="height:'+hgt.toFixed(1)+'px"></i>';
+      }).join("");
+    }
+
+    const mo = isle.querySelector("[data-more]");
+    mo.textContent = st.next ? ("그 다음 " + st.next.t + " · " + hhmm(st.next.from))
+                             : "오늘 남은 일정 없음";
+  });
+}
+
+function render () {
+  const now = Number(slider.value);
+  const st  = stateAt(now);
+
+  clock.textContent = hhmm(now);
+  cursor.style.left = ((now - T0)/(T1 - T0)*100).toFixed(2) + "%";
+
+  let label, lc;
+  if (st.mode === "during")      { label = "진행 중 · " + st.ev.t; lc = TEAL; }
+  else if (st.mode === "done")   { label = "오늘 일정 끝";         lc = GRAY; }
+  else {
+    const p = 1 - Math.min(1, st.leftSec/3600);
+    lc = rgbFor(p);
+    label = st.leftSec > 3600 ? "잠잠" : st.leftSec > 1800 ? "옅음"
+          : st.leftSec > 600 ? "인지" : st.leftSec > 300 ? "주의"
+          : st.leftSec > 60 ? "발광" : "맥동";
+    label += " · " + st.ev.t;
+  }
+  const s = document.documentElement.style;
+  s.setProperty("--stbg", cssA(lc,.2));
+  s.setProperty("--stfg", css(lc));
+  stBadge.textContent = label;
+
+  document.querySelectorAll(".dayline .ev").forEach(function (el, i) {
+    el.classList.toggle("act", st.mode === "during" && AG[i] === st.ev);
+  });
+  s.setProperty("--colSolid", css(lc));
+
+  document.querySelectorAll(".card").forEach(function (card) {
+    const v = V.filter(function (x) { return x.key === card.dataset.k; })[0];
+    renderOne(card, v, st, now);
+  });
+}
+
+slider.addEventListener("input", function () { stop(); render(); });
+function stop () {
+  if (timer) clearInterval(timer);
+  timer = null;
+  playBtn.classList.remove("on");
+  playBtn.textContent = "▶ 자동재생";
+}
+playBtn.addEventListener("click", function () {
+  if (timer) return stop();
+  slider.value = T0; render();
+  playBtn.classList.add("on"); playBtn.textContent = "■ 정지";
+  const stepMs = 40, inc = (T1-T0) / (46000/stepMs);   // 4시간 40분을 46초로
+  timer = setInterval(function () {
+    const next = Number(slider.value) + inc;
+    if (next >= T1) { slider.value = T1; render(); stop(); return; }
+    slider.value = next; render();
+  }, stepMs);
+});
+document.querySelectorAll("[data-sz]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("[data-sz]").forEach(function (x) { x.classList.remove("on"); });
+    b.classList.add("on");
+    document.documentElement.style.setProperty("--ringsz", b.dataset.sz+"px");
+  });
+});
+themeBtn.addEventListener("click", function () {
+  document.body.classList.toggle("light");
+  themeBtn.textContent = document.body.classList.contains("light") ? "화면 어둡게" : "화면 밝게";
+});
+
+render();
+</script>
+</body>
+</html>

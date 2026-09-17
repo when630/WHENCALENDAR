@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whencalendar — 아일랜드 변형 10</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#161920; --line:#252a34;
+    --fg:#e8ecf3; --dim:#8b93a1; --accent:#7fd0ff;
+    --screen:#12151b; --screen-line:#1b2028;
+    --isbg:rgba(18,21,27,.97); --isfg:#eef2f8; --isbd:rgba(255,255,255,.12);
+  }
+  body.light {
+    --bg:#eef1f5; --panel:#fff; --line:#dde2ea;
+    --fg:#1a1d24; --dim:#6b7280; --accent:#0a7ea4;
+    --screen:#fbfcfe; --screen-line:#e8ecf2;
+    --isbg:rgba(28,32,40,.96); --isfg:#f2f5fa; --isbd:rgba(255,255,255,.14);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font-family:"Pretendard","Segoe UI",system-ui,sans-serif;
+    padding:26px 20px 70px; transition:background .25s,color .25s;
+  }
+  .wrap { max-width:1400px; margin:0 auto; }
+  h1 { font-size:20px; font-weight:650; letter-spacing:-.4px; margin-bottom:5px; }
+  .sub { color:var(--dim); font-size:13.5px; line-height:1.7; margin-bottom:20px; }
+
+  .bar {
+    position:sticky; top:0; z-index:30;
+    background:var(--panel); border:1px solid var(--line); border-radius:13px;
+    padding:14px 18px; margin-bottom:24px;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    box-shadow:0 6px 22px rgba(0,0,0,.2);
+  }
+  .bar input[type=range] { flex:1; min-width:180px; accent-color:var(--accent); height:4px; }
+  .readout { font-variant-numeric:tabular-nums; font-size:22px; font-weight:650; min-width:112px; letter-spacing:-.5px; }
+  .tier { font-size:12.5px; font-weight:650; padding:3px 10px; border-radius:20px; background:var(--colSolid); color:#0b0d11; }
+  button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+           padding:8px 13px; font-size:13px; cursor:pointer; font-family:inherit; transition:border-color .15s; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#0b0d11; border-color:var(--accent); font-weight:600; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:15px; }
+  .card h2 { font-size:14px; font-weight:650; margin-bottom:3px; }
+  .card .desc { font-size:12px; color:var(--dim); line-height:1.6; margin-bottom:12px; min-height:46px; }
+  .card .desc em { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .screen { position:relative; aspect-ratio:16/9; border-radius:8px; overflow:hidden;
+            background:var(--screen); border:1px solid var(--line); }
+  .fake { position:absolute; inset:0; padding:26px 16px 16px; opacity:.8; }
+  .fake .ln { height:7px; border-radius:3px; background:var(--screen-line); margin-bottom:9px; }
+
+  /* ───────── 아일랜드 공통 ───────── */
+  .isle {
+    position:absolute; left:50%; transform:translateX(-50%);
+    background:var(--isbg); color:var(--isfg);
+    border:1px solid var(--isbd);
+    display:flex; align-items:center; gap:8px;
+    box-shadow:0 7px 24px rgba(0,0,0,.45);
+    white-space:nowrap;
+    transition:padding .45s cubic-bezier(.2,.9,.3,1),
+               border-radius .4s ease, opacity .35s ease,
+               transform .45s cubic-bezier(.2,.9,.3,1), gap .4s ease;
+  }
+  .isle .dot { width:8px; height:8px; border-radius:50%; flex:none;
+               background:var(--colSolid); box-shadow:0 0 calc(var(--rv)*10px) var(--colSolid);
+               transition:box-shadow .4s ease; }
+  .isle .txt { display:flex; align-items:baseline; gap:8px; overflow:hidden;
+               max-width:calc(var(--rv) * 320px); opacity:var(--rv);
+               transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+  .isle .t    { font-size:12px; font-weight:640; letter-spacing:-.1px; }
+  .isle .left { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+  .isle .at   { font-size:10.5px; color:#9aa3b2; }
+
+  /* 1 기본 알약 */
+  .v1 .isle { top:8px; border-radius:22px; padding:5px calc(7px + var(--rv)*9px); }
+
+  /* 2 노치형 — 화면 위에 붙는다 */
+  .v2 .isle { top:0; border-top:none; border-radius:0 0 14px 14px;
+              padding:calc(4px + var(--rv)*2px) calc(10px + var(--rv)*10px); }
+
+  /* 3 링 게이지 */
+  .v3 .isle { top:8px; border-radius:22px; padding:4px calc(7px + var(--rv)*9px) 4px 5px; gap:7px; }
+  .v3 .ring { width:18px; height:18px; flex:none; }
+  .v3 .ring .bg { stroke:rgba(140,148,160,.28); }
+  .v3 .ring .fg { stroke:var(--colSolid); stroke-linecap:round; transition:stroke-dashoffset .12s linear; }
+
+  /* 4 내부 진행바 */
+  .v4 .isle { top:8px; border-radius:13px; padding:5px calc(8px + var(--rv)*9px) 8px;
+              flex-direction:column; align-items:stretch; gap:5px; }
+  .v4 .row  { display:flex; align-items:center; gap:8px; }
+  .v4 .meter { height:2.5px; border-radius:2px; background:rgba(140,148,160,.25); overflow:hidden;
+               opacity:var(--rv); transition:opacity .3s ease; }
+  .v4 .meter i { display:block; height:100%; width:var(--ratio60); background:var(--colSolid);
+                 transition:width .12s linear; }
+
+  /* 5 숫자 우선 */
+  .v5 .isle { top:8px; border-radius:22px; padding:4px calc(8px + var(--rv)*9px); gap:9px; }
+  .v5 .big  { font-size:calc(12px + var(--rv)*5px); font-weight:800; font-variant-numeric:tabular-nums;
+              color:var(--colSolid); letter-spacing:-.4px; transition:font-size .4s ease; }
+  .v5 .sml  { font-size:11px; color:#9aa3b2; overflow:hidden;
+              max-width:calc(var(--rv)*200px); opacity:var(--rv);
+              transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+
+  /* 6 2단 확장 */
+  .v6 .isle { top:8px; border-radius:15px; padding:5px calc(8px + var(--rv)*9px);
+              flex-direction:column; align-items:flex-start; gap:0; }
+  .v6 .row  { display:flex; align-items:baseline; gap:8px; }
+  .v6 .row2 { font-size:10.5px; color:#9aa3b2; overflow:hidden;
+              max-height:calc(var(--rv2) * 18px); opacity:var(--rv2);
+              margin-top:calc(var(--rv2) * 3px);
+              transition:max-height .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease, margin-top .4s ease; }
+
+  /* 7 완전 숨김 → 등장 */
+  .v7 .isle { top:8px; border-radius:22px; padding:5px 15px;
+              opacity:var(--rv); transform:translateX(-50%) translateY(calc((1 - var(--rv)) * -22px)) scale(calc(.9 + var(--rv)*.1)); }
+  .v7 .isle .txt { max-width:320px; opacity:1; }
+
+  /* 8 상단 우측 */
+  .v8 .isle { top:8px; left:auto; right:10px; transform:none; border-radius:22px;
+              padding:5px calc(7px + var(--rv)*9px); }
+
+  /* 9 컴팩트 바 */
+  .v9 .isle { top:5px; border-radius:6px; padding:1.5px calc(7px + var(--rv)*7px); gap:7px;
+              box-shadow:0 4px 14px rgba(0,0,0,.38); }
+  .v9 .isle .dot { width:5px; height:5px; }
+  .v9 .isle .t, .v9 .isle .left { font-size:10.5px; }
+
+  /* 10 호버 확장 */
+  .v10 { pointer-events:auto; }
+  .v10 .isle { top:8px; border-radius:22px; padding:5px 8px; cursor:default; }
+  .v10 .isle .txt { max-width:0; opacity:0; }
+  .v10 .isle:hover { padding:5px 16px; }
+  .v10 .isle:hover .txt { max-width:320px; opacity:1; }
+  .v10 .hint { position:absolute; left:50%; top:42px; transform:translateX(-50%);
+               font-size:10.5px; color:var(--dim); white-space:nowrap; }
+
+  /* 임박 맥동 */
+  .pulsing .isle { animation:breathe 1.7s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{ box-shadow:0 7px 24px rgba(0,0,0,.45); }
+                       50%{ box-shadow:0 7px 24px rgba(0,0,0,.45), 0 0 0 3px var(--colGlow); } }
+
+  .ov { position:absolute; inset:0; pointer-events:none; }
+
+  .note { margin-top:30px; padding:15px 18px; border-radius:11px;
+          background:var(--panel); border:1px solid var(--line);
+          font-size:12.5px; color:var(--dim); line-height:1.85; }
+  .note b { color:var(--fg); }
+  kbd { background:var(--line); border-radius:4px; padding:1px 6px; font-family:inherit; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>다이나믹 아일랜드 변형 10</h1>
+  <p class="sub">
+    전부 같은 원리입니다 — <b>평소엔 점 하나, 가까워지면 펼쳐진다.</b> 펼치는 방식과 담는 내용만 다릅니다.
+    <b>자동재생</b>으로 90분치를 한 번에 보세요.
+  </p>
+
+  <div class="bar">
+    <span class="readout" id="readout">60분</span>
+    <span class="tier" id="tierBadge">잠잠</span>
+    <input type="range" id="slider" min="0" max="5400" step="5" value="3600">
+    <button id="play">▶ 자동재생</button>
+    <button id="theme">화면 밝게</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="note">
+    <b>공통 타이밍</b> — 60분 이상은 점만. 30분부터 서서히 펼쳐지고 10분에 완전히 펼쳐집니다.
+    5분부터 색이 붉어지고 1분에 테두리가 숨을 쉽니다.<br>
+    <b>⑩은 마우스를 올려보세요.</b> 시간과 무관하게 펼쳐집니다.<br>
+    <b>주의</b> — 이 상자는 실제 모니터보다 훨씬 작아서 아일랜드가 <b>실제보다 크게 보입니다.</b>
+    실제로는 화면 폭의 1/10도 안 됩니다.<br>
+    <b>다른 방식들</b> — <kbd>compare.html</kbd> · <b>실제 오버레이</b> — <kbd>npm start</kbd>
+  </div>
+
+</div>
+
+<script>
+const FULL = 5400;
+const A0 = { t:"주간 회의", at:"14:00" };
+const A1 = { t:"디자인 리뷰", at:"15:30" };
+
+const V = [
+  { n:1,  key:"v1",  title:"① 기본 알약",
+    desc:"점 하나에서 가로로 늘어난다. 가장 단순하고 가장 안전한 기본형." },
+  { n:2,  key:"v2",  title:"② 노치형",
+    desc:"화면 맨 위에 <em>붙어</em> 있다. 떠 있지 않아서 화면 일부처럼 느껴진다." },
+  { n:3,  key:"v3",  title:"③ 링 게이지",
+    desc:"점 대신 원형 링이 줄어든다. 숫자를 안 읽어도 남은 양이 보인다." },
+  { n:4,  key:"v4",  title:"④ 내부 진행바",
+    desc:"아일랜드 바닥에 가는 막대가 줄어든다. 링보다 조용하다." },
+  { n:5,  key:"v5",  title:"⑤ 숫자 우선",
+    desc:"남은 시간이 주인공. 일정 이름은 부제로 작게 붙는다." },
+  { n:6,  key:"v6",  title:"⑥ 2단 확장",
+    desc:"임박하면 <em>아래로</em> 한 줄 더 — 그 다음 일정까지 알려준다." },
+  { n:7,  key:"v7",  title:"⑦ 완전 숨김 → 등장",
+    desc:"평소엔 <em>점조차 없다.</em> 30분부터 위에서 툭 떨어진다." },
+  { n:8,  key:"v8",  title:"⑧ 상단 우측",
+    desc:"중앙을 비운다. 전체화면 영상·발표 자료와 덜 부딪힌다." },
+  { n:9,  key:"v9",  title:"⑨ 컴팩트 바",
+    desc:"알약을 납작하게 눌렀다. 존재감 최소, 정보량은 그대로." },
+  { n:10, key:"v10", title:"⑩ 호버 확장",
+    desc:"시간과 무관하게 <em>마우스를 올리면</em> 펼쳐진다. 궁금할 때 직접 확인." }
+];
+
+function lines () {
+  return [58,34,76,50,22,68,44,84].map(function (w) {
+    return '<div class="ln" style="width:'+w+'%"></div>';
+  }).join("");
+}
+const L = '<span class="left" data-left>—</span>';
+
+function build (key) {
+  if (key === "v3") {
+    return '<div class="isle">' +
+      '<svg class="ring" viewBox="0 0 24 24"><circle class="bg" cx="12" cy="12" r="9" fill="none" stroke-width="3"/>' +
+      '<circle class="fg" data-ring cx="12" cy="12" r="9" fill="none" stroke-width="3" transform="rotate(-90 12 12)"/></svg>' +
+      '<span class="txt"><span class="t">'+A0.t+'</span>'+L+"</span></div>";
+  }
+  if (key === "v4") {
+    return '<div class="isle">' +
+      '<div class="row"><span class="dot"></span><span class="txt"><span class="t">'+A0.t+'</span>'+L+"</span></div>" +
+      '<div class="meter"><i></i></div></div>';
+  }
+  if (key === "v5") {
+    return '<div class="isle"><span class="dot"></span>' +
+      '<span class="big" data-big>—</span>' +
+      '<span class="sml">'+A0.t+" · "+A0.at+"</span></div>";
+  }
+  if (key === "v6") {
+    return '<div class="isle">' +
+      '<div class="row"><span class="dot"></span><span class="txt"><span class="t">'+A0.t+'</span>'+L+"</span></div>" +
+      '<div class="row2">그 다음 '+A1.t+" · "+A1.at+"</div></div>";
+  }
+  if (key === "v10") {
+    return '<div class="isle"><span class="dot"></span>' +
+      '<span class="txt"><span class="t">'+A0.t+'</span>'+L+'<span class="at">'+A0.at+"</span></span></div>" +
+      '<div class="hint">↑ 마우스를 올려보세요</div>';
+  }
+  return '<div class="isle"><span class="dot"></span>' +
+    '<span class="txt"><span class="t">'+A0.t+'</span>'+L+"</span></div>";
+}
+
+const grid = document.getElementById("grid");
+V.forEach(function (v) {
+  grid.insertAdjacentHTML("beforeend",
+    '<div class="card"><h2>'+v.title+'</h2><div class="desc">'+v.desc+"</div>" +
+    '<div class="screen"><div class="fake">'+lines()+"</div>" +
+    '<div class="ov '+v.key+'">'+build(v.key)+"</div></div></div>");
+});
+
+const slider   = document.getElementById("slider");
+const readout  = document.getElementById("readout");
+const tierBadge= document.getElementById("tierBadge");
+const playBtn  = document.getElementById("play");
+const themeBtn = document.getElementById("theme");
+let timer = null;
+
+function lerp (a,b,t) { return a+(b-a)*t; }
+function mix (c1,c2,t) { return [0,1,2].map(function(i){ return Math.round(lerp(c1[i],c2[i],t)); }); }
+function pressure (sec) { return 1 - Math.min(1, Math.max(0,sec)/3600); }
+function rgbFor (p) {
+  const CALM=[110,196,255], WARN=[255,194,86], URGE=[255,72,72];
+  return p<.5 ? mix(CALM,WARN,p/.5) : mix(WARN,URGE,(p-.5)/.5);
+}
+function solidFor (p) { const c=rgbFor(p); return "rgb("+c[0]+","+c[1]+","+c[2]+")"; }
+function glowFor (p)  { const c=rgbFor(p); return "rgba("+c[0]+","+c[1]+","+c[2]+",.42)"; }
+
+function tierName (sec) {
+  if (sec > 3600) return "잠잠";
+  if (sec > 1800) return "옅음";
+  if (sec > 600)  return "인지";
+  if (sec > 300)  return "주의";
+  if (sec > 60)   return "발광";
+  return "맥동";
+}
+function fmt (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+String(m%60).padStart(2,"0")+"분";
+  if (m>=1)  return m+"분 "+String(s%60).padStart(2,"0")+"초";
+  return s+"초";
+}
+function fmtShort (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+(m%60)+"분";
+  if (m>=1)  return m+"분 남음";
+  return s+"초 남음";
+}
+function fmtBig (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+(m%60)+"분";
+  if (m>=1)  return m+"분";
+  return s+"초";
+}
+
+// 펼침: 30분부터 시작해 10분에 완전히
+function reveal (sec) {
+  if (sec > 1800) return 0;
+  if (sec <= 600) return 1;
+  return (1800 - sec) / 1200;
+}
+// 2단째는 10분부터 5분 사이에 열린다
+function reveal2 (sec) {
+  if (sec > 600) return 0;
+  if (sec <= 300) return 1;
+  return (600 - sec) / 300;
+}
+
+const RING = 2 * Math.PI * 9;
+
+function render () {
+  const sec = Number(slider.value);
+  const p   = pressure(sec);
+  const rv  = reveal(sec);
+
+  const s = document.documentElement.style;
+  s.setProperty("--rv",  rv.toFixed(3));
+  s.setProperty("--rv2", reveal2(sec).toFixed(3));
+  s.setProperty("--colSolid", solidFor(p));
+  s.setProperty("--colGlow",  glowFor(p));
+  s.setProperty("--ratio60", (Math.min(1, sec/3600)*100).toFixed(2) + "%");
+
+  document.querySelectorAll("[data-ring]").forEach(function (r) {
+    r.style.strokeDasharray  = RING;
+    r.style.strokeDashoffset = RING * (1 - Math.min(1, sec/3600));
+  });
+  document.querySelectorAll("[data-left]").forEach(function (e) { e.textContent = fmtShort(sec); });
+  document.querySelectorAll("[data-big]").forEach(function (e) { e.textContent = fmtBig(sec); });
+
+  readout.textContent   = fmt(sec);
+  tierBadge.textContent = tierName(sec);
+  document.body.classList.toggle("pulsing", sec <= 60);
+}
+
+slider.addEventListener("input", function () { stop(); render(); });
+function stop () {
+  if (timer) clearInterval(timer);
+  timer = null;
+  playBtn.classList.remove("on");
+  playBtn.textContent = "▶ 자동재생";
+}
+playBtn.addEventListener("click", function () {
+  if (timer) return stop();
+  slider.value = FULL; render();
+  playBtn.classList.add("on"); playBtn.textContent = "■ 정지";
+  const stepMs = 40, dec = FULL / (30000/stepMs);
+  timer = setInterval(function () {
+    const next = Number(slider.value) - dec;
+    if (next <= 0) { slider.value = 0; render(); stop(); return; }
+    slider.value = next; render();
+  }, stepMs);
+});
+themeBtn.addEventListener("click", function () {
+  document.body.classList.toggle("light");
+  themeBtn.textContent = document.body.classList.contains("light") ? "화면 어둡게" : "화면 밝게";
+});
+
+render();
+</script>
+</body>
+</html>

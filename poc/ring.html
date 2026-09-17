@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whencalendar — 링 게이지 디테일 10</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#161920; --line:#252a34;
+    --fg:#e8ecf3; --dim:#8b93a1; --accent:#7fd0ff;
+    --screen:#12151b; --screen-line:#1b2028;
+    --isbg:rgba(18,21,27,.97); --isfg:#eef2f8; --isbd:rgba(255,255,255,.12);
+    --track:rgba(140,148,160,.26);
+    --ringsz:20px;
+  }
+  body.light {
+    --bg:#eef1f5; --panel:#fff; --line:#dde2ea;
+    --fg:#1a1d24; --dim:#6b7280; --accent:#0a7ea4;
+    --screen:#fbfcfe; --screen-line:#e8ecf2;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font-family:"Pretendard","Segoe UI",system-ui,sans-serif;
+    padding:26px 20px 70px; transition:background .25s,color .25s;
+  }
+  .wrap { max-width:1420px; margin:0 auto; }
+  h1 { font-size:20px; font-weight:650; letter-spacing:-.4px; margin-bottom:5px; }
+  .sub { color:var(--dim); font-size:13.5px; line-height:1.7; margin-bottom:20px; }
+
+  .bar {
+    position:sticky; top:0; z-index:30;
+    background:var(--panel); border:1px solid var(--line); border-radius:13px;
+    padding:14px 18px; margin-bottom:24px;
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    box-shadow:0 6px 22px rgba(0,0,0,.22);
+  }
+  .bar input[type=range] { flex:1; min-width:170px; accent-color:var(--accent); height:4px; }
+  .readout { font-variant-numeric:tabular-nums; font-size:22px; font-weight:650; min-width:112px; letter-spacing:-.5px; }
+  .tier { font-size:12.5px; font-weight:650; padding:3px 10px; border-radius:20px; background:var(--colSolid); color:#0b0d11; }
+  button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+           padding:8px 12px; font-size:12.5px; cursor:pointer; font-family:inherit; transition:border-color .15s; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#0b0d11; border-color:var(--accent); font-weight:600; }
+  .seg { display:flex; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; border-right:1px solid var(--line); }
+  .seg button:last-child { border-right:none; }
+  .lbl { font-size:11.5px; color:var(--dim); margin-right:-8px; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(390px,1fr)); gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:15px; }
+  .card h2 { font-size:14px; font-weight:650; margin-bottom:3px; }
+  .card .desc { font-size:12px; color:var(--dim); line-height:1.6; margin-bottom:11px; min-height:46px; }
+  .card .desc em { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .screen { position:relative; aspect-ratio:16/9; border-radius:8px; overflow:hidden;
+            background:var(--screen); border:1px solid var(--line); }
+  .fake { position:absolute; inset:0; padding:26px 16px 16px; opacity:.8; }
+  .fake .ln { height:7px; border-radius:3px; background:var(--screen-line); margin-bottom:9px; }
+
+  /* 실물 크기 미리보기 */
+  .actual {
+    margin-top:10px; padding:16px 12px; border-radius:8px;
+    background:linear-gradient(135deg,#1d2330,#141821);
+    display:flex; justify-content:center; align-items:center; min-height:62px;
+    border:1px solid rgba(255,255,255,.05);
+  }
+  .actual .cap { position:absolute; }
+  .capnote { font-size:10.5px; color:var(--dim); text-align:center; margin-top:5px; }
+
+  /* ───────── 아일랜드 ───────── */
+  .ov { position:absolute; inset:0; pointer-events:none; }
+  .isle {
+    position:absolute; top:8px; left:50%; transform:translateX(-50%);
+    background:var(--isbg); color:var(--isfg);
+    border:1px solid var(--isbd); border-radius:24px;
+    display:flex; align-items:center; gap:8px;
+    padding:4px calc(6px + var(--rv)*9px) 4px 5px;
+    box-shadow:0 7px 24px rgba(0,0,0,.45); white-space:nowrap;
+    transition:padding .45s cubic-bezier(.2,.9,.3,1), gap .4s ease;
+  }
+  .actual .isle { position:static; transform:none; }
+
+  .isle .txt { display:flex; align-items:baseline; gap:8px; overflow:hidden;
+               max-width:calc(var(--rv) * 320px); opacity:var(--rv);
+               transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+  .isle .t    { font-size:12px; font-weight:640; letter-spacing:-.1px; }
+  .isle .left { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+
+  /* ── 호버 확장 ── 시간과 무관하게 내가 궁금할 때 */
+  .ov .isle, .actual .isle { pointer-events:auto; }
+  .isle .more {
+    font-size:10.5px; color:#9aa3b2; overflow:hidden; white-space:nowrap;
+    max-width:0; opacity:0; padding-left:0;
+    border-left:1px solid transparent;
+    transition:max-width .4s cubic-bezier(.2,.9,.3,1), opacity .28s ease,
+               padding-left .4s ease, border-color .3s ease;
+  }
+  .isle:hover .txt  { max-width:320px; opacity:1; }
+  .isle:hover .more { max-width:220px; opacity:1; padding-left:9px;
+                      border-left-color:rgba(255,255,255,.14); }
+  .isle:hover .dots,
+  .isle:hover .badge { max-width:80px; opacity:1; }
+  .isle:hover       { padding-right:14px; }
+
+  svg.ring { width:var(--ringsz); height:var(--ringsz); flex:none; overflow:visible; display:block; }
+  .ring .bg  { stroke:var(--track); }
+  .ring .fg  { stroke:var(--colSolid); stroke-linecap:round;
+               transition:stroke-dashoffset .12s linear, stroke-width .4s ease; }
+  .ring .fg.butt { stroke-linecap:butt; }
+  .ring .num { fill:var(--isfg); font-size:8.5px; font-weight:750; text-anchor:middle;
+               font-family:inherit; font-variant-numeric:tabular-nums; }
+  .ring .num.sm { font-size:7px; }
+  .ring .seg      { stroke:var(--track); stroke-width:2.4; stroke-linecap:round; }
+  .ring .seg.on   { stroke:var(--colSolid); }
+  .ring .tick     { stroke:var(--isbg); stroke-width:2.2; }
+  .ring .outer    { stroke:rgba(140,148,160,.20); }
+  .ring .outerfg  { stroke:rgba(150,170,200,.72); stroke-linecap:round; }
+
+  .dots { display:flex; gap:3.5px; align-items:center; overflow:hidden;
+          max-width:calc(var(--rv) * 60px); opacity:var(--rv); transition:max-width .45s, opacity .3s; }
+  .dots i { width:4px; height:4px; border-radius:50%; background:rgba(150,160,175,.45); }
+  .dots i.next { background:var(--colSolid); }
+
+  .badge { font-size:9.5px; font-weight:700; letter-spacing:.2px; padding:1.5px 6px; border-radius:6px;
+           background:rgba(110,200,160,.18); color:#7fe0b0; overflow:hidden;
+           max-width:calc(var(--rv) * 80px); opacity:var(--rv); transition:max-width .45s, opacity .3s; }
+
+  .pulsing .isle { animation:breathe 1.7s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{ box-shadow:0 7px 24px rgba(0,0,0,.45); }
+                       50%{ box-shadow:0 7px 24px rgba(0,0,0,.45), 0 0 0 3px var(--colGlow); } }
+
+  .note { margin-top:30px; padding:15px 18px; border-radius:11px;
+          background:var(--panel); border:1px solid var(--line);
+          font-size:12.5px; color:var(--dim); line-height:1.85; }
+  .note b { color:var(--fg); }
+  kbd { background:var(--line); border-radius:4px; padding:1px 6px; font-family:inherit; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>링 게이지 — 디테일 변형 10</h1>
+  <p class="sub">
+    껍데기는 전부 같은 알약입니다. <b>링이 무엇을 어떻게 말하는지</b>만 다릅니다.
+    아래쪽 어두운 칸이 <b>실물 크기</b>입니다 — 디테일은 거기서 보세요.<br>
+    <b>전부 호버 확장이 붙어 있습니다.</b> 마우스를 올리면 시간과 무관하게 펼쳐지고,
+    자동으로는 안 나오는 <b>그 다음 일정</b>까지 따라옵니다.
+  </p>
+
+  <div class="bar">
+    <span class="readout" id="readout">60분</span>
+    <span class="tier" id="tierBadge">잠잠</span>
+    <input type="range" id="slider" min="0" max="5400" step="5" value="3600">
+    <button id="play">▶ 자동재생</button>
+    <span class="lbl">링 크기</span>
+    <span class="seg">
+      <button data-sz="16">16</button>
+      <button data-sz="20" class="on">20</button>
+      <button data-sz="26">26</button>
+    </span>
+    <button id="theme">화면 밝게</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="note">
+    <b>공통</b> — 링은 <b>60분치</b>를 한 바퀴로 봅니다. 60분 이상 남으면 꽉 찬 채로 멈춰 있고,
+    거기서부터 반시계로 줄어듭니다. 텍스트는 30분부터 펼쳐져 10분에 완전히 열립니다.<br>
+    <b>⑩ 회의 중</b>은 슬라이더를 <b>회의가 끝날 때까지 남은 시간</b>으로 읽습니다. 색이 중립(청록)으로 고정돼
+    "다가온다"가 아니라 "진행 중"임을 구분합니다.<br>
+    <b>다른 방식</b> — <kbd>island.html</kbd> · <kbd>compare.html</kbd> · 실제 오버레이 <kbd>npm start</kbd>
+  </div>
+
+</div>
+
+<script>
+const FULL = 5400;
+const A0 = { t:"주간 회의", at:"14:00" };
+
+const V = [
+  { key:"basic",  title:"① 기본",
+    desc:"트랙 위에 호가 줄어든다. 링은 표식이고 정보는 옆 텍스트가 맡는다." },
+  { key:"innum",  title:"② 링 안 숫자",
+    desc:"링 안에 남은 분이 박힌다. 텍스트가 접혀 있어도 <em>링 하나로 완결</em>된다." },
+  { key:"seg",    title:"③ 세그먼트 12칸",
+    desc:"연속 호 대신 12조각. 5분에 한 칸씩 꺼진다. <em>몇 칸 남았나</em>를 셀 수 있다." },
+  { key:"tick",   title:"④ 15분 눈금",
+    desc:"연속 호를 유지하되 15분마다 홈을 판다. 대략의 양을 눈금으로 읽는다." },
+  { key:"thick",  title:"⑤ 두께 변화",
+    desc:"임박할수록 링이 굵어진다. 색뿐 아니라 <em>무게</em>로도 말한다." },
+  { key:"dual",   title:"⑥ 이중 링",
+    desc:"바깥은 하루 전체(08–20시) 진행, 안쪽은 다음 일정까지. 두 시간축을 겹친다." },
+  { key:"fill",   title:"⑦ 차오름 (역방향)",
+    desc:"남은 걸 지우지 않고 <em>지나간 시간을 채운다.</em> 꽉 차면 도착." },
+  { key:"notrack",title:"⑧ 트랙 없음",
+    desc:"회색 배경 원을 지운다. 호만 떠 있어 가장 조용하지만 총량 감이 없다." },
+  { key:"agenda", title:"⑨ 링 + 남은 일정 점",
+    desc:"링 옆에 오늘 남은 일정만큼 점. <em>앞으로 몇 개 남았는지</em>가 같이 보인다." },
+  { key:"during", title:"⑩ 회의 중 모드",
+    desc:"일정이 <em>진행 중</em>일 때. 색이 중립으로 바뀌고 링은 끝날 때까지를 센다." }
+];
+
+function lines () {
+  return [58,34,76,50,22,68,44,84].map(function (w) {
+    return '<div class="ln" style="width:'+w+'%"></div>';
+  }).join("");
+}
+
+const R = 9, CIRC = 2 * Math.PI * R;
+
+function segLines () {
+  let out = "";
+  for (let i = 0; i < 12; i++) {
+    const a  = (i * 30 - 90) * Math.PI / 180;
+    const x1 = 12 + (R - 2.2) * Math.cos(a), y1 = 12 + (R - 2.2) * Math.sin(a);
+    const x2 = 12 + (R + 2.2) * Math.cos(a), y2 = 12 + (R + 2.2) * Math.sin(a);
+    out += '<line class="seg" data-seg="' + i + '" x1="' + x1.toFixed(2) + '" y1="' + y1.toFixed(2) +
+           '" x2="' + x2.toFixed(2) + '" y2="' + y2.toFixed(2) + '"/>';
+  }
+  return out;
+}
+function tickLines () {
+  let out = "";
+  for (let i = 0; i < 4; i++) {
+    const a  = (i * 90 - 90) * Math.PI / 180;
+    const x1 = 12 + (R - 3) * Math.cos(a), y1 = 12 + (R - 3) * Math.sin(a);
+    const x2 = 12 + (R + 3) * Math.cos(a), y2 = 12 + (R + 3) * Math.sin(a);
+    out += '<line class="tick" x1="' + x1.toFixed(2) + '" y1="' + y1.toFixed(2) +
+           '" x2="' + x2.toFixed(2) + '" y2="' + y2.toFixed(2) + '"/>';
+  }
+  return out;
+}
+
+function ringSvg (key) {
+  const open = '<svg class="ring" viewBox="0 0 24 24">';
+  const track = '<circle class="bg" cx="12" cy="12" r="9" fill="none" stroke-width="2.6"/>';
+  const arc   = '<circle class="fg" data-arc cx="12" cy="12" r="9" fill="none" stroke-width="2.6" transform="rotate(-90 12 12)"/>';
+
+  if (key === "innum")   return open + track + arc + '<text class="num" data-num x="12" y="15">—</text></svg>';
+  if (key === "seg")     return open + segLines() + "</svg>";
+  if (key === "tick")    return open + track + '<circle class="fg butt" data-arc cx="12" cy="12" r="9" fill="none" stroke-width="2.8" transform="rotate(-90 12 12)"/>' + tickLines() + "</svg>";
+  if (key === "thick")   return open + track + '<circle class="fg" data-arc data-thick cx="12" cy="12" r="9" fill="none" stroke-width="2.6" transform="rotate(-90 12 12)"/></svg>';
+  if (key === "dual")    return open +
+      '<circle class="outer" cx="12" cy="12" r="11" fill="none" stroke-width="1.7"/>' +
+      '<circle class="outerfg" data-outer cx="12" cy="12" r="11" fill="none" stroke-width="1.7" transform="rotate(-90 12 12)"/>' +
+      '<circle class="bg" cx="12" cy="12" r="7.2" fill="none" stroke-width="2.4"/>' +
+      '<circle class="fg" data-arc data-r="7.2" cx="12" cy="12" r="7.2" fill="none" stroke-width="2.4" transform="rotate(-90 12 12)"/></svg>';
+  if (key === "fill")    return open + track + '<circle class="fg" data-arc data-invert cx="12" cy="12" r="9" fill="none" stroke-width="2.6" transform="rotate(-90 12 12)"/></svg>';
+  if (key === "notrack") return open + arc + "</svg>";
+  return open + track + arc + "</svg>";
+}
+
+function build (key) {
+  const ring = ringSvg(key);
+  const txt  = '<span class="txt"><span class="t">'+A0.t+'</span><span class="left" data-left>—</span></span>';
+
+  if (key === "innum") {
+    return '<div class="isle">'+ring+'<span class="txt"><span class="t">'+A0.t+"</span></span></div>";
+  }
+  if (key === "agenda") {
+    return '<div class="isle">'+ring+txt+
+      '<span class="dots"><i class="next"></i><i></i><i></i></span></div>';
+  }
+  if (key === "during") {
+    return '<div class="isle">'+ring+
+      '<span class="txt"><span class="t">'+A0.t+'</span><span class="left" data-left data-endword>—</span></span>' +
+      '<span class="badge">진행 중</span></div>';
+  }
+  return '<div class="isle">'+ring+txt+"</div>";
+}
+
+const grid = document.getElementById("grid");
+V.forEach(function (v) {
+  grid.insertAdjacentHTML("beforeend",
+    '<div class="card"><h2>'+v.title+'</h2><div class="desc">'+v.desc+"</div>" +
+    '<div class="screen"><div class="fake">'+lines()+"</div>" +
+      '<div class="ov" data-v="'+v.key+'">'+build(v.key)+"</div></div>" +
+    '<div class="actual" data-v="'+v.key+'">'+build(v.key)+"</div>" +
+    '<div class="capnote">↑ 실물 크기 · 마우스를 올리면 펼쳐집니다</div></div>');
+});
+
+// 호버로만 열리는 추가 정보 — 모든 변형에 공통으로 붙인다
+document.querySelectorAll(".isle").forEach(function (el) {
+  el.insertAdjacentHTML("beforeend", '<span class="more">그 다음 디자인 리뷰 · 15:30</span>');
+});
+
+const slider   = document.getElementById("slider");
+const readout  = document.getElementById("readout");
+const tierBadge= document.getElementById("tierBadge");
+const playBtn  = document.getElementById("play");
+const themeBtn = document.getElementById("theme");
+let timer = null;
+
+function lerp (a,b,t) { return a+(b-a)*t; }
+function mix (c1,c2,t) { return [0,1,2].map(function(i){ return Math.round(lerp(c1[i],c2[i],t)); }); }
+function pressure (sec) { return 1 - Math.min(1, Math.max(0,sec)/3600); }
+function rgbFor (p) {
+  const CALM=[110,196,255], WARN=[255,194,86], URGE=[255,72,72];
+  return p<.5 ? mix(CALM,WARN,p/.5) : mix(WARN,URGE,(p-.5)/.5);
+}
+function solidFor (p) { const c=rgbFor(p); return "rgb("+c[0]+","+c[1]+","+c[2]+")"; }
+function glowFor (p)  { const c=rgbFor(p); return "rgba("+c[0]+","+c[1]+","+c[2]+",.42)"; }
+
+function tierName (sec) {
+  if (sec > 3600) return "잠잠";
+  if (sec > 1800) return "옅음";
+  if (sec > 600)  return "인지";
+  if (sec > 300)  return "주의";
+  if (sec > 60)   return "발광";
+  return "맥동";
+}
+function fmt (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+String(m%60).padStart(2,"0")+"분";
+  if (m>=1)  return m+"분 "+String(s%60).padStart(2,"0")+"초";
+  return s+"초";
+}
+function fmtShort (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+(m%60)+"분";
+  if (m>=1)  return m+"분 남음";
+  return s+"초 남음";
+}
+function fmtEnd (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=1) return m+"분 뒤 종료";
+  return s+"초 뒤 종료";
+}
+function reveal (sec) {
+  if (sec > 1800) return 0;
+  if (sec <= 600) return 1;
+  return (1800 - sec) / 1200;
+}
+
+function render () {
+  const sec = Number(slider.value);
+  const p   = pressure(sec);
+  const r60 = Math.min(1, sec / 3600);          // 링 = 60분 한 바퀴
+
+  const s = document.documentElement.style;
+  s.setProperty("--rv", reveal(sec).toFixed(3));
+  s.setProperty("--colSolid", solidFor(p));
+  s.setProperty("--colGlow",  glowFor(p));
+
+  document.querySelectorAll("[data-arc]").forEach(function (a) {
+    const rr = a.dataset.r ? Number(a.dataset.r) : R;
+    const c  = 2 * Math.PI * rr;
+    const invert = a.hasAttribute("data-invert");
+    a.style.strokeDasharray  = c;
+    a.style.strokeDashoffset = invert ? c * r60 : c * (1 - r60);
+    if (a.hasAttribute("data-thick")) a.style.strokeWidth = (1.8 + p * 3.4).toFixed(2);
+  });
+
+  // 이중 링 바깥 = 하루 진행 (08:00~20:00, 다음 일정 14:00 기준 역산)
+  const nowMin = 840 - sec/60;
+  const dayR   = Math.max(0, Math.min(1, (nowMin - 480) / 720));
+  document.querySelectorAll("[data-outer]").forEach(function (o) {
+    const c = 2 * Math.PI * 11;
+    o.style.strokeDasharray  = c;
+    o.style.strokeDashoffset = c * (1 - dayR);
+  });
+
+  // 세그먼트 12칸 — 5분에 한 칸
+  const onCount = Math.ceil(r60 * 12);
+  document.querySelectorAll("[data-seg]").forEach(function (l) {
+    l.classList.toggle("on", Number(l.dataset.seg) < onCount);
+  });
+
+  // 링 안 숫자
+  const mm = Math.max(0, Math.round(sec/60));
+  document.querySelectorAll("[data-num]").forEach(function (t) {
+    t.textContent = mm >= 60 ? "60+" : String(mm);
+    t.classList.toggle("sm", mm >= 60);
+  });
+
+  document.querySelectorAll("[data-left]").forEach(function (e) {
+    e.textContent = e.hasAttribute("data-endword") ? fmtEnd(sec) : fmtShort(sec);
+  });
+
+  // ⑩ 회의 중은 중립색 고정
+  document.querySelectorAll('[data-v="during"]').forEach(function (box) {
+    box.style.setProperty("--colSolid", "rgb(110,206,175)");
+    box.style.setProperty("--colGlow",  "rgba(110,206,175,.4)");
+  });
+
+  readout.textContent   = fmt(sec);
+  tierBadge.textContent = tierName(sec);
+  document.body.classList.toggle("pulsing", sec <= 60);
+}
+
+slider.addEventListener("input", function () { stop(); render(); });
+function stop () {
+  if (timer) clearInterval(timer);
+  timer = null;
+  playBtn.classList.remove("on");
+  playBtn.textContent = "▶ 자동재생";
+}
+playBtn.addEventListener("click", function () {
+  if (timer) return stop();
+  slider.value = FULL; render();
+  playBtn.classList.add("on"); playBtn.textContent = "■ 정지";
+  const stepMs = 40, dec = FULL / (32000/stepMs);
+  timer = setInterval(function () {
+    const next = Number(slider.value) - dec;
+    if (next <= 0) { slider.value = 0; render(); stop(); return; }
+    slider.value = next; render();
+  }, stepMs);
+});
+document.querySelectorAll("[data-sz]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("[data-sz]").forEach(function (x) { x.classList.remove("on"); });
+    b.classList.add("on");
+    document.documentElement.style.setProperty("--ringsz", b.dataset.sz + "px");
+  });
+});
+themeBtn.addEventListener("click", function () {
+  document.body.classList.toggle("light");
+  themeBtn.textContent = document.body.classList.contains("light") ? "화면 어둡게" : "화면 밝게";
+});
+
+render();
+</script>
+</body>
+</html>

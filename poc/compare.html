@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whencalendar 오버레이 비교</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#161920; --line:#252a34;
+    --fg:#e8ecf3; --dim:#8b93a1; --accent:#7fd0ff;
+    --screen:#12151b; --screen-line:#1b2028;
+    --cardbg:rgba(20,23,29,.96); --cardfg:#eef2f8;
+  }
+  body.light {
+    --bg:#eef1f5; --panel:#ffffff; --line:#dde2ea;
+    --fg:#1a1d24; --dim:#6b7280; --accent:#0a7ea4;
+    --screen:#fbfcfe; --screen-line:#e8ecf2;
+    --cardbg:rgba(255,255,255,.97); --cardfg:#141821;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font-family:"Pretendard","Segoe UI",system-ui,sans-serif;
+    padding:26px 20px 70px; transition:background .25s, color .25s;
+  }
+  .wrap { max-width:1400px; margin:0 auto; }
+
+  h1 { font-size:20px; font-weight:650; letter-spacing:-.4px; margin-bottom:5px; }
+  .sub { color:var(--dim); font-size:13.5px; line-height:1.7; margin-bottom:20px; }
+
+  .bar {
+    position:sticky; top:0; z-index:30;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:13px; padding:14px 18px; margin-bottom:24px;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    box-shadow:0 6px 22px rgba(0,0,0,.2);
+  }
+  .bar input[type=range] { flex:1; min-width:180px; accent-color:var(--accent); height:4px; }
+  .readout { font-variant-numeric:tabular-nums; font-size:22px; font-weight:650; min-width:112px; letter-spacing:-.5px; }
+  .tier { font-size:12.5px; font-weight:650; padding:3px 10px; border-radius:20px; background:var(--tiercol); color:#0b0d11; }
+  button {
+    background:transparent; color:var(--fg); border:1px solid var(--line);
+    border-radius:8px; padding:8px 13px; font-size:13px; cursor:pointer;
+    font-family:inherit; transition:border-color .15s;
+  }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#0b0d11; border-color:var(--accent); font-weight:600; }
+
+  h3.sec { font-size:14px; font-weight:650; margin:34px 0 4px; display:flex; align-items:center; gap:9px; }
+  h3.sec:first-of-type { margin-top:0; }
+  h3.sec span { font-size:12px; font-weight:500; color:var(--dim); }
+  .secdesc { font-size:12.5px; color:var(--dim); margin-bottom:15px; line-height:1.6; }
+
+  .grid  { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:18px; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:15px; }
+  .card h2 { font-size:14px; font-weight:650; margin-bottom:3px; }
+  .card .desc { font-size:12px; color:var(--dim); line-height:1.6; margin-bottom:12px; min-height:46px; }
+
+  .screen { position:relative; aspect-ratio:16/10; border-radius:7px; overflow:hidden;
+            background:var(--screen); border:1px solid var(--line); }
+  .fake { position:absolute; inset:0; padding:16px 14px; opacity:.85; }
+  .fake .ln { height:7px; border-radius:3px; background:var(--screen-line); margin-bottom:9px; }
+
+  /* ───────── 면 방식 ───────── */
+  .ov { position:absolute; inset:0; pointer-events:none; }
+  .ov.topbar .b { position:absolute; top:0; left:0; right:0; height:var(--thick); background:var(--col); box-shadow:var(--glowD); }
+  .ov.prog   .b { position:absolute; top:0; left:0; width:var(--ratio); height:var(--thick); background:var(--col); box-shadow:var(--glowD); }
+  .ov.frame     { border:var(--thick) solid var(--col); box-shadow:var(--glowI); }
+  .ov.corner    { display:flex; align-items:flex-start; justify-content:flex-end; padding:10px 12px; }
+  .ov.corner .track { stroke:rgba(128,128,128,.16); }
+  .ov.corner .arc   { stroke:var(--col); stroke-linecap:round; filter:var(--glowS); }
+  .ov.hair   .b { position:absolute; bottom:0; left:0; right:0; height:var(--thick); background:var(--col); box-shadow:var(--glowU); }
+
+  /* ───────── 카드 공통 ───────── */
+  .deck { position:absolute; top:0; left:0; right:0; display:flex; flex-direction:column; align-items:center; }
+  .deck.bottom { top:auto; bottom:0; flex-direction:column-reverse; }
+  .deck .rail { align-self:stretch; height:var(--thick); background:var(--col); box-shadow:var(--glowD); }
+
+  .chip {
+    background:var(--cardbg); color:var(--cardfg);
+    border:1px solid rgba(128,128,128,.22); border-top:none;
+    border-radius:0 0 11px 11px; padding:8px 15px 9px;
+    box-shadow:0 8px 24px rgba(0,0,0,.38);
+    display:flex; align-items:baseline; gap:11px;
+    transform:translateY(var(--drop)); opacity:var(--cardop);
+    transition:transform .45s cubic-bezier(.2,.9,.3,1), opacity .35s ease;
+    white-space:nowrap;
+  }
+  .deck.bottom .chip { border-radius:11px 11px 0 0; border-top:1px solid rgba(128,128,128,.22); border-bottom:none;
+                       transform:translateY(calc(var(--drop) * -1)); }
+  .chip .t    { font-size:13px; font-weight:640; letter-spacing:-.2px; }
+  .chip .left { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+  .chip .at   { font-size:11px; color:var(--dim); }
+  .chip.sub2  { transform:translateY(calc(var(--drop) * 1.5)); opacity:calc(var(--cardop) * .6);
+                padding:5px 13px 6px; border-radius:0 0 9px 9px; }
+  .chip.sub2 .t,.chip.sub2 .at { font-size:10.5px; }
+
+  /* ⑧ 우상단 필 */
+  .pill {
+    position:absolute; top:11px; right:12px;
+    background:var(--cardbg); color:var(--cardfg);
+    border:1px solid rgba(128,128,128,.22); border-radius:9px; padding:7px 12px;
+    box-shadow:0 8px 22px rgba(0,0,0,.35);
+    display:flex; flex-direction:column; gap:2px; align-items:flex-end;
+    opacity:var(--cardop); transform:translateY(calc(var(--drop) * .5));
+    transition:transform .45s cubic-bezier(.2,.9,.3,1), opacity .35s ease; white-space:nowrap;
+  }
+  .pill .t    { font-size:11.5px; font-weight:620; }
+  .pill .left { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); letter-spacing:-.3px; }
+
+  /* ⑨ 노치 */
+  .isle {
+    position:absolute; top:7px; left:50%; transform:translateX(-50%);
+    background:var(--cardbg); color:var(--cardfg);
+    border:1px solid rgba(128,128,128,.2); border-radius:22px;
+    display:flex; align-items:center; gap:8px;
+    padding:5px calc(7px + var(--rv) * 8px);
+    box-shadow:0 6px 20px rgba(0,0,0,.4);
+    opacity:calc(.3 + var(--rv) * .7);
+    transition:padding .45s ease, opacity .35s ease;
+  }
+  .isle .dot { width:8px; height:8px; border-radius:50%; background:var(--colSolid);
+               box-shadow:0 0 calc(var(--rv) * 9px) var(--colSolid); flex:none; }
+  .isle .txt { display:flex; align-items:baseline; gap:8px; overflow:hidden; white-space:nowrap;
+               max-width:calc(var(--rv) * 300px); opacity:var(--rv);
+               transition:max-width .45s cubic-bezier(.2,.9,.3,1), opacity .3s ease; }
+  .isle .t    { font-size:12px; font-weight:640; }
+  .isle .left { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+
+  /* ⑩ 타임라인 */
+  .tlwrap { position:absolute; top:0; left:0; right:0; padding:0; }
+  .tlbar { position:relative; height:9px; background:rgba(128,128,128,.13); }
+  .tlbar .blk { position:absolute; top:0; bottom:0; background:rgba(128,128,128,.42); border-radius:2px; }
+  .tlbar .blk.next { background:var(--col); box-shadow:var(--glowD); }
+  .tlbar .now { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--colSolid);
+                box-shadow:0 0 7px var(--colSolid); transition:left .12s linear; }
+  .tlwrap .chip { margin:0 auto; display:inline-flex; }
+  .tlwrap .chiprow { display:flex; justify-content:center; }
+
+  /* ⑪ 사이드 탭 */
+  .sidebar { position:absolute; top:0; right:0; bottom:0; width:var(--thick); background:var(--col); box-shadow:var(--glowL); }
+  .sidetab {
+    position:absolute; top:16%; right:0;
+    background:var(--cardbg); color:var(--cardfg);
+    border:1px solid rgba(128,128,128,.22); border-right:none;
+    border-radius:10px 0 0 10px; padding:9px 13px;
+    box-shadow:-8px 8px 24px rgba(0,0,0,.35);
+    display:flex; flex-direction:column; gap:3px; align-items:flex-end;
+    transform:translateX(calc((1 - var(--rv)) * 108%)); opacity:var(--cardop);
+    transition:transform .45s cubic-bezier(.2,.9,.3,1), opacity .35s ease; white-space:nowrap;
+  }
+  .sidetab .t    { font-size:11.5px; font-weight:620; }
+  .sidetab .left { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+
+  /* ⑫ 중앙 워터마크 */
+  .mark { display:flex; align-items:center; justify-content:center; }
+  .mark span {
+    font-size:clamp(28px, 13vw, 92px); font-weight:800; letter-spacing:-3px;
+    color:var(--colSolid); opacity:calc(.03 + var(--rv) * .17);
+    font-variant-numeric:tabular-nums; transition:opacity .4s ease; line-height:1;
+  }
+
+  /* ⑬ peek — 경계를 지날 때만 */
+  .peekchip { opacity:var(--peek) !important; transform:translateY(calc((1 - var(--peek)) * -110%)) !important; }
+
+  /* ⑭ 항상 있는 미니 위젯 */
+  .widget {
+    position:absolute; right:10px; bottom:10px;
+    background:var(--cardbg); color:var(--cardfg);
+    border:1px solid rgba(128,128,128,.2); border-radius:10px; padding:8px 12px;
+    box-shadow:0 8px 22px rgba(0,0,0,.35);
+    display:flex; flex-direction:column; gap:3px; white-space:nowrap;
+    opacity:calc(.55 + var(--rv) * .45);
+    transition:opacity .35s ease;
+  }
+  .widget .t    { font-size:11px; font-weight:620; }
+  .widget .left { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--colSolid); }
+  .widget .nxt  { font-size:10px; color:var(--dim); }
+
+  .pulsing .ov .b, .pulsing .ov.frame, .pulsing .ov.corner .arc, .pulsing .deck .rail,
+  .pulsing .sidebar, .pulsing .tlbar .blk.next { animation:beat 1.7s ease-in-out infinite; }
+  @keyframes beat { 0%,100%{opacity:1} 50%{opacity:.42} }
+
+  .note { margin-top:30px; padding:15px 18px; border-radius:11px;
+          background:var(--panel); border:1px solid var(--line);
+          font-size:12.5px; color:var(--dim); line-height:1.85; }
+  .note b { color:var(--fg); }
+  kbd { background:var(--line); border-radius:4px; padding:1px 6px; font-family:inherit; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>whencalendar 오버레이 — 느낌 비교</h1>
+  <p class="sub">슬라이더를 왼쪽으로 밀거나 <b>자동재생</b>을 누르면 전부 동시에 반응합니다. 각 상자는 모니터 한 대입니다.</p>
+
+  <div class="bar">
+    <span class="readout" id="readout">60분</span>
+    <span class="tier" id="tierBadge">잠잠</span>
+    <input type="range" id="slider" min="0" max="5400" step="5" value="3600">
+    <button id="play">▶ 자동재생</button>
+    <button id="theme">화면 밝게</button>
+  </div>
+
+  <h3 class="sec">카드 방식 <span>— 무엇이, 얼마나 남았는지까지</span></h3>
+  <p class="secdesc">평소엔 띠만 있다가 가까워지면 정보가 나타납니다. 기본은 30분부터 서서히, 10분에 완전히.</p>
+  <div class="grid2" id="gridCards"></div>
+
+  <h3 class="sec">면 방식 <span>— 뭔가 다가온다는 것만</span></h3>
+  <p class="secdesc">처음 만든 다섯 가지. 무엇이 오는지 알 수 없다는 게 확인된 한계입니다.</p>
+  <div class="grid" id="gridPlain"></div>
+
+  <div class="note">
+    <b>읽는 법</b> — 60분 이상은 거의 보이지 않는 게 의도입니다. 30분부터 색이 들어오고, 10분에 두꺼워지고,
+    5분부터 번지고, 1분에 맥동합니다.<br>
+    <b>⑬ peek</b>은 30분·10분·5분·1분을 <b>지나는 순간에만</b> 잠깐 나왔다 들어갑니다. 자동재생으로 보시면
+    네 번 스치듯 지나갑니다 (실제 앱에서는 4초쯤 머뭅니다).<br>
+    <b>주의</b> — 이 상자들은 실제 모니터보다 훨씬 작아서 띠와 카드가 <b>실제보다 크게 보입니다.</b><br>
+    <b>실제 오버레이</b> — <kbd>cd poc &amp;&amp; npm start</kbd> · 종료 <kbd>Ctrl+Alt+Q</kbd>
+  </div>
+
+</div>
+
+<script>
+const FULL = 5400;
+const A = [
+  { t:"주간 회의",   at:"14:00", from:840, to:900  },
+  { t:"디자인 리뷰", at:"15:30", from:930, to:990  },
+  { t:"1:1 미팅",    at:"17:00", from:1020, to:1050 }
+];
+const DAY_FROM = 480, DAY_TO = 1200;   // 08:00 ~ 20:00
+
+const PLAIN = [
+  { key:"topbar", title:"① 상단 띠",       desc:"화면 맨 위 가로 전체. 시선이 가장 자주 지나가는 자리." },
+  { key:"prog",   title:"② 진행 막대",     desc:"남은 시간만큼 길이가 줄어든다." },
+  { key:"frame",  title:"③ 네 변 테두리",  desc:"화면 전체를 감싼다. 가장 강하고 가장 방해된다." },
+  { key:"corner", title:"④ 우상단 게이지", desc:"작은 원형. 존재감이 가장 약하다." },
+  { key:"hair",   title:"⑤ 하단 미세선",   desc:"작업표시줄 위. 덜 들어오고 덜 거슬린다." }
+];
+
+const CARDS = [
+  { key:"drop",   title:"⑥ 띠 + 카드 한 장",
+    desc:"띠는 늘 있고, 가까워지면 그 아래로 카드가 내려온다. 무엇이 · 언제 · 얼마나가 한 줄에." },
+  { key:"stack",  title:"⑦ 카드 스택",
+    desc:"다음 일정 아래에 그 다음 것이 반쯤 겹쳐 따라 내려온다. 오늘 흐름까지 같이 보인다." },
+  { key:"pill",   title:"⑧ 우상단 필",
+    desc:"가운데를 비우고 모서리로. 작업 화면을 덜 침범하지만 시선에서도 멀다." },
+  { key:"notch",  title:"⑨ 노치 (다이나믹 아일랜드)",
+    desc:"평소엔 점 하나만. 가까워지면 옆으로 늘어나며 내용이 펼쳐진다. 늘 거기 있되 작다." },
+  { key:"tl",     title:"⑩ 타임라인 바",
+    desc:"상단이 오늘 하루 전체(08–20시). 일정이 블록으로 박히고 현재 위치 마커가 오른쪽으로 간다." },
+  { key:"side",   title:"⑪ 사이드 탭",
+    desc:"오른쪽 가장자리에서 탭이 밀려 나온다. 위쪽 IDE 탭·메뉴와 겹치지 않는다." },
+  { key:"bottom", title:"⑫ 아래에서 올라오는 카드",
+    desc:"⑥과 같되 방향만 반대. 상단은 에디터 탭이 붐비니 아래가 나을 수 있다." },
+  { key:"peek",   title:"⑬ peek — 지나는 순간에만",
+    desc:"30·10·5·1분 경계를 넘을 때만 잠깐 나왔다 사라진다. 평소엔 완전히 없다." },
+  { key:"widget", title:"⑭ 항상 있는 미니 위젯",
+    desc:"숨지 않는다. 우하단에 늘 떠 있고 임박하면 진해진다. 트레이를 대신한다." },
+  { key:"mark",   title:"⑮ 중앙 워터마크",
+    desc:"화면 한가운데 옅은 큰 숫자. 시선 정중앙이라 확실히 인지되지만 가장 과감하다." }
+];
+
+const gridPlain = document.getElementById("gridPlain");
+const gridCards = document.getElementById("gridCards");
+const slider    = document.getElementById("slider");
+const readout   = document.getElementById("readout");
+const tierBadge = document.getElementById("tierBadge");
+const playBtn   = document.getElementById("play");
+const themeBtn  = document.getElementById("theme");
+let timer = null;
+
+function fakeLines () {
+  return [62,38,80,54,25,71,46,88,33,60,42,76].map(function (w) {
+    return '<div class="ln" style="width:' + w + '%"></div>';
+  }).join("");
+}
+function leftSpan () { return '<span class="left" data-left>—</span>'; }
+function pct (min) { return ((min - DAY_FROM) / (DAY_TO - DAY_FROM) * 100).toFixed(2); }
+
+function buildCard (key) {
+  if (key === "drop") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div>' +
+      '<div class="chip"><span class="t">'+A[0].t+'</span>'+leftSpan()+'<span class="at">'+A[0].at+'</span></div>' +
+      "</div></div>";
+  }
+  if (key === "stack") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div>' +
+      '<div class="chip"><span class="t">'+A[0].t+'</span>'+leftSpan()+'<span class="at">'+A[0].at+'</span></div>' +
+      '<div class="chip sub2"><span class="t">'+A[1].t+'</span><span class="at">'+A[1].at+' · 그 다음</span></div>' +
+      "</div></div>";
+  }
+  if (key === "pill") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div></div>' +
+      '<div class="pill"><span class="t">'+A[0].t+'</span>'+leftSpan()+"</div></div>";
+  }
+  if (key === "notch") {
+    return '<div class="ov"><div class="isle"><span class="dot"></span>' +
+      '<span class="txt"><span class="t">'+A[0].t+'</span>'+leftSpan()+"</span></div></div>";
+  }
+  if (key === "tl") {
+    let blocks = "";
+    A.forEach(function (e, i) {
+      blocks += '<div class="blk' + (i === 0 ? " next" : "") + '" style="left:' + pct(e.from) +
+                "%;width:" + ((e.to - e.from) / (DAY_TO - DAY_FROM) * 100).toFixed(2) + '%"></div>';
+    });
+    return '<div class="ov"><div class="tlwrap"><div class="tlbar">' + blocks +
+      '<div class="now" data-now style="left:0%"></div></div>' +
+      '<div class="chiprow"><div class="chip"><span class="t">'+A[0].t+'</span>'+leftSpan()+
+      '<span class="at">'+A[0].at+"</span></div></div></div></div>";
+  }
+  if (key === "side") {
+    return '<div class="ov"><div class="sidebar"></div>' +
+      '<div class="sidetab"><span class="t">'+A[0].t+'</span>'+leftSpan()+"</div></div>";
+  }
+  if (key === "bottom") {
+    return '<div class="ov"><div class="deck bottom"><div class="rail"></div>' +
+      '<div class="chip"><span class="t">'+A[0].t+'</span>'+leftSpan()+'<span class="at">'+A[0].at+'</span></div>' +
+      "</div></div>";
+  }
+  if (key === "peek") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div>' +
+      '<div class="chip peekchip"><span class="t">'+A[0].t+'</span>'+leftSpan()+
+      '<span class="at">'+A[0].at+"</span></div></div></div>";
+  }
+  if (key === "widget") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div></div>' +
+      '<div class="widget"><span class="t">'+A[0].t+'</span>'+leftSpan()+
+      '<span class="nxt">그 다음 '+A[1].t+" "+A[1].at+"</span></div></div>";
+  }
+  if (key === "mark") {
+    return '<div class="ov"><div class="deck"><div class="rail"></div></div>' +
+      '<div class="ov mark"><span data-big>—</span></div></div>';
+  }
+  return "";
+}
+
+PLAIN.forEach(function (v) {
+  let inner;
+  if (v.key === "corner") {
+    inner = '<div class="ov corner"><svg width="52" height="52" viewBox="0 0 64 64" overflow="visible">' +
+      '<circle class="track" cx="32" cy="32" r="26" fill="none" stroke-width="3"/>' +
+      '<circle class="arc" cx="32" cy="32" r="26" fill="none" stroke-width="3" transform="rotate(-90 32 32)"/></svg></div>';
+  } else if (v.key === "frame") {
+    inner = '<div class="ov frame"></div>';
+  } else {
+    inner = '<div class="ov ' + v.key + '"><div class="b"></div></div>';
+  }
+  gridPlain.insertAdjacentHTML("beforeend",
+    '<div class="card"><h2>'+v.title+'</h2><div class="desc">'+v.desc+'</div>' +
+    '<div class="screen"><div class="fake">'+fakeLines()+"</div>"+inner+"</div></div>");
+});
+
+CARDS.forEach(function (v) {
+  gridCards.insertAdjacentHTML("beforeend",
+    '<div class="card"><h2>'+v.title+'</h2><div class="desc">'+v.desc+'</div>' +
+    '<div class="screen"><div class="fake">'+fakeLines()+"</div>"+buildCard(v.key)+"</div></div>");
+});
+
+function lerp (a,b,t) { return a + (b-a)*t; }
+function mix (c1,c2,t) { return [0,1,2].map(function(i){ return Math.round(lerp(c1[i],c2[i],t)); }); }
+function pressure (sec) { return 1 - Math.min(1, Math.max(0,sec)/3600); }
+
+function tierName (sec) {
+  if (sec > 3600) return "잠잠";
+  if (sec > 1800) return "옅음";
+  if (sec > 600)  return "인지";
+  if (sec > 300)  return "주의";
+  if (sec > 60)   return "발광";
+  return "맥동";
+}
+function rgbFor (p) {
+  const CALM=[110,196,255], WARN=[255,194,86], URGE=[255,72,72];
+  return p < .5 ? mix(CALM,WARN,p/.5) : mix(WARN,URGE,(p-.5)/.5);
+}
+function colorFor (p) { const c=rgbFor(p); return "rgba("+c[0]+","+c[1]+","+c[2]+","+(0.10+p*0.85).toFixed(3)+")"; }
+function solidFor (p) { const c=rgbFor(p); return "rgb("+c[0]+","+c[1]+","+c[2]+")"; }
+
+function fmt (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+String(m%60).padStart(2,"0")+"분";
+  if (m>=1)  return m+"분 "+String(s%60).padStart(2,"0")+"초";
+  return s+"초";
+}
+function fmtShort (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+"시간 "+(m%60)+"분 남음";
+  if (m>=1)  return m+"분 남음";
+  return s+"초 남음";
+}
+function fmtBig (sec) {
+  const s=Math.max(0,Math.round(sec)), m=Math.floor(s/60);
+  if (m>=60) return Math.floor(m/60)+":"+String(m%60).padStart(2,"0");
+  if (m>=1)  return m+"분";
+  return s+"초";
+}
+
+// 카드는 30분부터 내려와 10분에 완전히 내려온다
+function cardReveal (sec) {
+  if (sec > 1800) return 0;
+  if (sec <= 600) return 1;
+  return (1800 - sec) / 1200;
+}
+// peek — 경계를 지나는 순간에만
+const EDGES = [1800, 600, 300, 60];
+function peekAt (sec) {
+  let best = 0;
+  for (let i=0;i<EDGES.length;i++) {
+    const d = Math.abs(sec - EDGES[i]);
+    if (d < 200) best = Math.max(best, 1 - d/200);
+  }
+  return best;
+}
+
+function render () {
+  const sec = Number(slider.value);
+  const p   = pressure(sec);
+  const col = colorFor(p);
+  const rv  = cardReveal(sec);
+
+  const glow   = sec <= 300 ? (1 - Math.max(0, sec-60)/240) : 0;
+  const blur   = (6 + glow*22).toFixed(0);
+  const spread = (glow*2).toFixed(2);
+
+  const s = document.documentElement.style;
+  s.setProperty("--col", col);
+  s.setProperty("--colSolid", solidFor(p));
+  s.setProperty("--thick", (1 + p*5).toFixed(2) + "px");
+  s.setProperty("--ratio", (Math.min(1, sec/FULL)*100).toFixed(2) + "%");
+  s.setProperty("--tiercol", solidFor(p));
+  s.setProperty("--rv", rv.toFixed(3));
+  s.setProperty("--drop", ((1 - rv) * -110).toFixed(1) + "%");
+  s.setProperty("--cardop", rv.toFixed(3));
+  s.setProperty("--peek", peekAt(sec).toFixed(3));
+  s.setProperty("--glowD", glow>0 ? "0 0 "+blur+"px "+spread+"px "+col : "none");
+  s.setProperty("--glowU", glow>0 ? "0 0 "+blur+"px "+spread+"px "+col : "none");
+  s.setProperty("--glowL", glow>0 ? "0 0 "+blur+"px "+spread+"px "+col : "none");
+  s.setProperty("--glowI", glow>0 ? "inset 0 0 "+blur+"px "+spread+"px "+col : "none");
+  s.setProperty("--glowS", glow>0 ? "drop-shadow(0 0 "+(glow*7).toFixed(1)+"px "+col+")" : "none");
+
+  const CIRC = 2*Math.PI*26;
+  document.querySelectorAll(".ov.corner .arc").forEach(function (a) {
+    a.style.strokeDasharray  = CIRC;
+    a.style.strokeDashoffset = CIRC * (1 - Math.min(1, sec/FULL));
+    a.style.strokeWidth = (2 + p*4).toFixed(2);
+  });
+
+  // 타임라인 현재 위치 — 다음 일정(14:00)에서 남은 시간만큼 뒤로
+  const nowMin = A[0].from - sec/60;
+  document.querySelectorAll("[data-now]").forEach(function (n) {
+    n.style.left = Math.max(0, Math.min(100, (nowMin - DAY_FROM)/(DAY_TO - DAY_FROM)*100)).toFixed(2) + "%";
+  });
+
+  document.querySelectorAll("[data-left]").forEach(function (el) { el.textContent = fmtShort(sec); });
+  document.querySelectorAll("[data-big]").forEach(function (el) { el.textContent = fmtBig(sec); });
+
+  readout.textContent   = fmt(sec);
+  tierBadge.textContent = tierName(sec);
+  document.body.classList.toggle("pulsing", sec <= 60);
+}
+
+slider.addEventListener("input", function () { stop(); render(); });
+
+function stop () {
+  if (timer) clearInterval(timer);
+  timer = null;
+  playBtn.classList.remove("on");
+  playBtn.textContent = "▶ 자동재생";
+}
+playBtn.addEventListener("click", function () {
+  if (timer) return stop();
+  slider.value = FULL; render();
+  playBtn.classList.add("on"); playBtn.textContent = "■ 정지";
+  const stepMs = 40, dec = FULL / (30000/stepMs);
+  timer = setInterval(function () {
+    const next = Number(slider.value) - dec;
+    if (next <= 0) { slider.value = 0; render(); stop(); return; }
+    slider.value = next; render();
+  }, stepMs);
+});
+themeBtn.addEventListener("click", function () {
+  document.body.classList.toggle("light");
+  themeBtn.textContent = document.body.classList.contains("light") ? "화면 어둡게" : "화면 밝게";
+});
+
+render();
+</script>
+</body>
+</html>

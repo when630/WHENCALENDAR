@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>WHENCALENDAR — 화면 목업</title>
+<style>
+/* ────────────────────────────────────────────────────────────
+   토큰은 whenwork/whennote renderer/tokens.css와 동일하다.
+   단일 원본은 그쪽이고 여기 값은 목업용 사본이다 — 바꾸지 말 것.
+   ──────────────────────────────────────────────────────────── */
+@font-face {
+  font-family:'Pretendard Variable';
+  src: local('Pretendard Variable'), local('Pretendard');
+  font-weight:100 900; font-display:swap;
+}
+:root {
+  --bg-app:#16171c; --bg-raised:#1e2027; --bg-inset:#131419; --bg-hover:#262933;
+  --border:#2e323d; --border-focus:#7aa2f7;
+  --text-primary:#e6e8ee; --text-secondary:#a8afbd; --text-muted:#7b8294;
+  --accent:#7aa2f7; --accent-dim:rgba(122,162,247,.14);
+  --success:#9ece6a; --warning:#e0af68; --danger:#f7768e;
+  /* whencalendar 추가 — 오버레이의 '진행 중' 청록과 같은 값 */
+  --live:#6eceaf; --live-dim:rgba(110,206,175,.14);
+
+  /* 달력 색 6종 — 구독·달력마다 하나씩. Tokyo Night 팔레트 안에서 고른다.
+     --live(#6eceaf)와 헷갈리지 않게 청록 계열은 넣지 않았다. */
+  --cal-1:#7aa2f7;  /* 파랑  */
+  --cal-2:#9ece6a;  /* 초록  */
+  --cal-3:#bb9af7;  /* 보라  */
+  --cal-4:#e0af68;  /* 노랑  */
+  --cal-5:#f7768e;  /* 분홍  */
+  --cal-6:#7dcfff;  /* 하늘  */
+
+  --font-sans:"Pretendard Variable","Pretendard","Malgun Gothic",system-ui,sans-serif;
+  --font-mono:"Cascadia Code","D2Coding",Consolas,monospace;
+  --fs-lg:16px; --fs-md:14px; --fs-sm:13px; --fs-xs:12px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px;
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:16px;
+  --shadow-pop:0 12px 40px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);
+}
+* { box-sizing:border-box; margin:0; }
+body {
+  background:#0c0d11; color:var(--text-primary);
+  font-family:var(--font-sans); font-size:var(--fs-md); line-height:1.5;
+  padding:28px 22px 80px; -webkit-font-smoothing:antialiased;
+}
+.page { max-width:1760px; margin:0 auto; }
+h1 { font-size:20px; font-weight:650; letter-spacing:-.4px; margin-bottom:4px; }
+.lede { color:var(--text-muted); font-size:13px; line-height:1.75; margin-bottom:26px; }
+.lede b { color:var(--text-secondary); }
+
+.shelf { display:grid; grid-template-columns:repeat(auto-fit,minmax(960px,1fr)); gap:26px; }
+.mock { min-width:0; }
+.mock > .cap { display:flex; align-items:baseline; gap:9px; margin-bottom:7px; }
+.mock > .cap b { font-size:13.5px; font-weight:650; }
+.mock > .cap span { font-size:11.5px; color:var(--text-muted); line-height:1.5; }
+
+/* ── 창 껍데기 ── */
+/* 기본 960×640 · 최소 760×540 — whenwork(최소 560×420)보다 크다.
+   월 격자 7열과 오른쪽 상세 패널(290px)이 같이 서려면 이 정도는 필요하다. */
+.win {
+  width:100%; max-width:960px; height:640px; background:var(--bg-app);
+  border:1px solid var(--border); border-radius:var(--r-lg);
+  overflow:hidden; box-shadow:var(--shadow-pop);
+  display:flex; flex-direction:column;
+}
+.app { display:flex; flex-direction:column; height:100%; }
+
+header {
+  display:flex; align-items:center; gap:var(--sp-4);
+  padding:9px var(--sp-4); border-bottom:1px solid var(--border);
+  background:var(--bg-app); flex:none;
+}
+header .title { font-size:var(--fs-xs); font-weight:750; letter-spacing:.8px; color:var(--text-secondary);
+                display:flex; align-items:center; gap:7px; }
+header .title::before { content:""; width:9px; height:9px; border-radius:99px;
+                        background:var(--accent); box-shadow:0 0 9px var(--accent-dim); }
+header .date { color:var(--text-muted); font-size:var(--fs-xs); margin-left:auto; }
+.tabs { display:flex; gap:2px; }
+.tab { display:flex; align-items:center; gap:6px; padding:4px 11px; border-radius:var(--r-sm);
+       font-size:var(--fs-sm); color:var(--text-muted); cursor:default; }
+.tab .n { font-size:10.5px; padding:0 5px; border-radius:99px; background:var(--bg-inset); color:var(--text-muted); }
+.tab.on { color:var(--text-primary); background:var(--bg-hover); }
+.tab.on .n { background:var(--accent-dim); color:var(--accent); }
+
+.body { flex:1; overflow:hidden; padding:var(--sp-2) 0; position:relative; }
+
+footer {
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:7px var(--sp-4); border-top:1px solid var(--border);
+  font-size:var(--fs-xs); color:var(--text-muted); flex:none; background:var(--bg-app);
+}
+.sync { display:flex; align-items:center; gap:6px; }
+.led { width:7px; height:7px; border-radius:99px; background:var(--success); box-shadow:0 0 7px rgba(158,206,106,.5); }
+.led.warn { background:var(--warning); box-shadow:0 0 7px rgba(224,175,104,.5); }
+.led.err  { background:var(--danger);  box-shadow:0 0 7px rgba(247,118,142,.5); }
+.led.load { background:var(--accent);  animation:blink 1.1s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.foot-hints { margin-left:auto; display:flex; gap:11px; }
+
+kbd { font-family:var(--font-mono); font-size:10.5px; background:var(--bg-inset);
+      border:1px solid var(--border); border-bottom-width:2px; border-radius:5px;
+      padding:1px 6px; color:var(--text-secondary); line-height:1.4; }
+.chip { display:inline-flex; align-items:center; gap:5px; font-size:var(--fs-xs);
+        color:var(--text-secondary); padding:1px 8px; border-radius:99px;
+        background:var(--bg-inset); border:1px solid var(--border); white-space:nowrap; }
+.chip .dot { width:7px; height:7px; border-radius:99px; flex:none; }
+
+/* ── 오늘 뷰: 시간축 ── */
+.tl { padding:0 var(--sp-4); height:100%; overflow:hidden; position:relative; }
+.tl .seghead { display:flex; align-items:center; gap:9px; padding:9px 0 5px; }
+.tl .seghead b { font-size:var(--fs-xs); color:var(--text-muted); font-weight:640; letter-spacing:.3px; }
+.tl .seghead i { flex:1; height:1px; background:var(--border); }
+
+.ev {
+  display:flex; gap:var(--sp-3); align-items:flex-start;
+  padding:7px 9px; border-radius:var(--r-sm); position:relative;
+}
+.ev:hover { background:var(--bg-raised); }
+.ev.sel { background:var(--accent-dim); box-shadow:inset 2px 0 0 var(--accent); }
+.ev .clock { font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--text-secondary);
+             width:82px; flex:none; padding-top:1px; letter-spacing:-.2px; }
+.ev .bar { width:3px; border-radius:99px; background:var(--text-muted); flex:none; align-self:stretch; opacity:.5; }
+.ev .main { flex:1; min-width:0; }
+.ev .t { font-size:var(--fs-md); }
+.ev .sub { font-size:var(--fs-xs); color:var(--text-muted); margin-top:2px;
+           display:flex; gap:7px; align-items:center; }
+.ev .rt { flex:none; font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; padding-top:2px; }
+
+.ev.past .t, .ev.past .clock { color:var(--text-muted); }
+.ev.past .bar { opacity:.22; }
+.ev.live { background:var(--live-dim); box-shadow:inset 2px 0 0 var(--live); }
+.ev.live .bar { background:var(--live); opacity:1; }
+.ev.live .rt { color:var(--live); font-weight:650; }
+.ev.next .bar { background:var(--accent); opacity:1; }
+.ev.next .rt { color:var(--accent); font-weight:650; }
+
+/* 지금 시각 선 */
+.nowline { display:flex; align-items:center; gap:8px; margin:3px 0 3px 9px; }
+.nowline .bead { width:7px; height:7px; border-radius:99px; background:var(--danger); flex:none;
+                 box-shadow:0 0 8px rgba(247,118,142,.6); }
+.nowline .ln { flex:1; height:1px; background:linear-gradient(90deg,var(--danger),transparent); }
+.nowline .lbl { font-family:var(--font-mono); font-size:10.5px; color:var(--danger); flex:none; }
+
+/* 빈 상태 */
+.empty { height:100%; display:flex; flex-direction:column; align-items:center;
+         justify-content:center; gap:var(--sp-3); color:var(--text-muted); }
+.empty .big { font-size:15px; color:var(--text-secondary); }
+.empty .hint { font-size:var(--fs-xs); line-height:1.9; text-align:center; }
+
+/* ── 주 뷰 ── */
+.wk { padding:0 var(--sp-4); height:100%; overflow:hidden; }
+.wkstrip { display:flex; gap:3px; padding:9px 0 12px; }
+.wkstrip .d { flex:1; text-align:center; padding:5px 0 6px; border-radius:var(--r-sm);
+              background:var(--bg-inset); border:1px solid transparent; }
+.wkstrip .d.on { border-color:var(--accent); background:var(--accent-dim); }
+.wkstrip .d.today .dd { color:var(--accent); font-weight:750; }
+.wkstrip .dw { font-size:10px; color:var(--text-muted); }
+.wkstrip .dd { font-size:var(--fs-sm); margin-top:1px; }
+.wkstrip .load { display:flex; gap:2px; justify-content:center; margin-top:5px; height:4px; }
+.wkstrip .load i { width:4px; height:4px; border-radius:99px; background:var(--text-muted); opacity:.45; }
+.wkstrip .load i.a { background:var(--accent); opacity:1; }
+.wkday { padding:8px 0 3px; display:flex; align-items:center; gap:9px; }
+.wkday b { font-size:var(--fs-sm); font-weight:640; }
+.wkday span { font-size:var(--fs-xs); color:var(--text-muted); }
+.wkday i { flex:1; height:1px; background:var(--border); }
+
+/* ── 구독 탭 ── */
+.subs { padding:var(--sp-2) var(--sp-4); }
+.sub {
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:11px 10px; border-radius:var(--r-sm); border:1px solid transparent;
+}
+.sub.sel { background:var(--accent-dim); box-shadow:inset 2px 0 0 var(--accent); }
+.sub .sw { width:9px; height:9px; border-radius:99px; flex:none; }
+.sub .main { flex:1; min-width:0; }
+.sub .nm { font-size:var(--fs-md); }
+.sub .url { font-family:var(--font-mono); font-size:10.5px; color:var(--text-muted);
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.sub .st { font-size:var(--fs-xs); flex:none; display:flex; align-items:center; gap:6px; }
+.sub .st.ok   { color:var(--text-muted); }
+.sub .st.load { color:var(--accent); }
+.sub .st.err  { color:var(--danger); }
+.sub .toggle { width:30px; height:17px; border-radius:99px; background:var(--bg-hover);
+               position:relative; flex:none; border:1px solid var(--border); }
+.sub .toggle::after { content:""; position:absolute; width:11px; height:11px; border-radius:99px;
+                      background:var(--text-muted); top:2px; left:2px; }
+.sub .toggle.on { background:var(--accent-dim); border-color:var(--accent); }
+.sub .toggle.on::after { left:auto; right:2px; background:var(--accent); }
+.pal { display:flex; gap:7px; align-items:center; margin:6px 0 4px 30px; }
+.pal .lb { font-size:10.5px; color:var(--text-muted); margin-right:4px; }
+.pal .sw2 { width:16px; height:16px; border-radius:99px; border:2px solid transparent;
+            box-shadow:0 0 0 1px var(--bg-app) inset; }
+.pal .sw2.on { border-color:var(--text-primary); }
+.errbox { margin:8px 0 0 30px; padding:8px 11px; border-radius:var(--r-sm);
+          background:rgba(247,118,142,.09); border:1px solid rgba(247,118,142,.28);
+          font-size:var(--fs-xs); color:#f0a3b3; line-height:1.7; }
+.errbox b { color:var(--danger); }
+
+/* ── 설정 ── */
+.set { padding:var(--sp-2) var(--sp-4); }
+.set .grp { font-size:var(--fs-xs); color:var(--text-muted); font-weight:640;
+            letter-spacing:.3px; padding:11px 0 5px; }
+.set .row { display:flex; align-items:center; gap:var(--sp-3); padding:8px 10px; border-radius:var(--r-sm); }
+.set .row.sel { background:var(--accent-dim); box-shadow:inset 2px 0 0 var(--accent); }
+.set .row .lb { flex:1; font-size:var(--fs-sm); }
+.set .row .lb small { display:block; font-size:11px; color:var(--text-muted); margin-top:1px; }
+.set .row .val { font-size:var(--fs-sm); color:var(--accent); font-variant-numeric:tabular-nums; }
+.segbtn { display:flex; gap:0; border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; }
+.segbtn i { font-style:normal; font-size:var(--fs-xs); padding:3px 10px; color:var(--text-muted);
+            border-right:1px solid var(--border); }
+.segbtn i:last-child { border-right:none; }
+.segbtn i.on { background:var(--accent-dim); color:var(--accent); font-weight:650; }
+.slider { width:130px; height:3px; background:var(--bg-hover); border-radius:99px; position:relative; }
+.slider i { position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:99px; }
+.slider u { position:absolute; width:11px; height:11px; border-radius:99px; background:var(--accent);
+            top:-4px; margin-left:-5px; }
+
+/* 설정 안 오버레이 미리보기 */
+.ovprev { margin:10px 10px 4px; padding:15px; border-radius:var(--r-md);
+          background:linear-gradient(135deg,#1d2330,#141821); border:1px solid var(--border);
+          display:flex; justify-content:center; }
+.isle { display:inline-flex; align-items:center; gap:8px; background:rgba(18,21,27,.97);
+        border:1px solid rgba(255,255,255,.12); border-radius:24px; padding:4px 14px 4px 5px;
+        box-shadow:0 7px 24px rgba(0,0,0,.45); }
+.isle .ring { width:20px; height:20px; flex:none; }
+.isle .rt { font-size:12.5px; font-weight:640; }
+.isle .rl { font-size:12.5px; font-weight:700; color:var(--warning); font-variant-numeric:tabular-nums; }
+.isle .dots { display:flex; gap:4px; }
+.isle .dots i { width:4px; height:4px; border-radius:99px; background:rgba(150,160,175,.42); }
+.isle .dots i.a { background:var(--warning); }
+
+/* ── 오버레이: 다이얼로그 · 키맵 · 토스트 ── */
+.scrim { position:absolute; inset:0; background:rgba(8,9,12,.62); }
+.dlg {
+  position:absolute; left:50%; top:76px; transform:translateX(-50%);
+  width:min(560px,86%); background:var(--bg-raised);
+  border:1px solid var(--border-focus); border-radius:var(--r-md);
+  box-shadow:var(--shadow-pop); padding:13px 15px 14px;
+}
+.dlg label { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin-bottom:7px; }
+.dlg .in { background:var(--bg-inset); border:1px solid var(--border); border-radius:var(--r-sm);
+           padding:8px 11px; font-size:var(--fs-md); color:var(--text-primary); }
+.dlg .in .caret { display:inline-block; width:1.5px; height:15px; background:var(--accent);
+                  vertical-align:-3px; margin-left:1px; animation:blink 1.05s step-end infinite; }
+.dlg .parse { margin-top:10px; padding:9px 11px; border-radius:var(--r-sm);
+              background:var(--bg-inset); border:1px solid var(--border);
+              font-size:var(--fs-xs); color:var(--text-secondary); line-height:1.85; }
+.dlg .parse b { color:var(--accent); }
+.dlg .parse .q { color:var(--warning); }
+.dlg .foot { display:flex; gap:11px; margin-top:10px; font-size:var(--fs-xs); color:var(--text-muted); }
+
+.keys {
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:min(620px,90%); max-height:86%; background:var(--bg-raised);
+  border:1px solid var(--border); border-radius:var(--r-md);
+  box-shadow:var(--shadow-pop); overflow:hidden;
+}
+.keys .kh { display:flex; align-items:baseline; gap:10px; padding:11px 15px;
+            border-bottom:1px solid var(--border); font-size:var(--fs-sm); font-weight:650; }
+.keys .kh span { font-size:var(--fs-xs); color:var(--text-muted); font-weight:400; margin-left:auto; }
+.keys .kbody { padding:11px 15px 15px; columns:2; column-gap:26px; }
+.keys .kgrp { font-size:11px; color:var(--text-muted); font-weight:640; margin:9px 0 5px;
+              letter-spacing:.3px; break-inside:avoid; }
+.keys .krow { display:flex; align-items:baseline; gap:9px; padding:2.5px 0;
+              font-size:var(--fs-xs); break-inside:avoid; }
+.keys .krow span { color:var(--text-secondary); }
+.keys .krow kbd { flex:none; min-width:26px; text-align:center; }
+
+.toast { position:absolute; left:50%; bottom:44px; transform:translateX(-50%);
+         background:var(--bg-raised); border:1px solid var(--border); border-radius:99px;
+         padding:7px 16px; font-size:var(--fs-xs); box-shadow:var(--shadow-pop);
+         display:flex; align-items:center; gap:8px; }
+.toast .dot { width:7px; height:7px; border-radius:99px; background:var(--success); }
+
+.detail { position:absolute; right:0; top:0; bottom:0; width:290px;
+          background:var(--bg-raised); border-left:1px solid var(--border); padding:15px; }
+.detail .dt { font-size:var(--fs-lg); font-weight:640; line-height:1.35; }
+.detail .dl { display:flex; gap:10px; font-size:var(--fs-xs); padding:6px 0;
+              border-bottom:1px solid rgba(46,50,61,.55); }
+.detail .dl b { color:var(--text-muted); font-weight:400; width:52px; flex:none; }
+.detail .acts { margin-top:13px; display:flex; flex-direction:column; gap:5px; }
+.detail .acts div { display:flex; gap:8px; align-items:center; font-size:var(--fs-xs); color:var(--text-secondary); }
+
+/* ── 월 격자 ── */
+.mon { padding:var(--sp-2) var(--sp-4); height:100%; display:flex; flex-direction:column; }
+.mon .dow { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; padding-bottom:5px; }
+.mon .dow span { text-align:center; font-size:10.5px; color:var(--text-muted); }
+.mon .dow span.we { color:#8a6f78; }
+.mon .cells { display:flex; flex-direction:column; gap:4px; flex:1; min-height:0; }
+.mon .wkrow { display:grid; grid-template-columns:repeat(7,1fr); gap:4px;
+              flex:1; min-height:0; }
+.mon .wkrow > .c { grid-row:1; }
+.mon .c { background:var(--bg-inset); border:1px solid transparent; border-radius:var(--r-sm);
+          padding:4px 5px; display:flex; flex-direction:column; gap:2px;
+          min-height:0; overflow:hidden; position:relative; }
+
+/* 여러 날에 걸친 일정 — 칸 위를 가로지른다.
+   주 경계를 넘으면 두 조각으로 나뉘고, 잘린 쪽 모서리를 각지게 해서 이어짐을 알린다. */
+.mon .wkrow.hasspan > .c { padding-top:36px; }
+.mon .wkrow.lane2   > .c { padding-top:54px; }
+.mon .wkrow.hasspan > .c > .dnum { position:absolute; top:4px; left:6px; }
+/* 레인은 두 줄까지. 세 개째부터는 +N으로 접는다 — 세 줄을 쌓으면 일정 점이 설 자리가 없다.
+   긴 일정이 위 레인으로 간다. */
+.mon .span.l2 { margin-top:36px; }
+.mon .morespan { grid-row:1; z-index:3; align-self:start; margin-top:36px; height:15px;
+                 display:flex; align-items:center; justify-content:flex-end; padding-right:3px; }
+.mon .morespan span { font-size:9.5px; font-weight:650; color:var(--text-secondary);
+                      background:var(--bg-app); border:1px solid var(--border);
+                      border-radius:4px; padding:0 5px; line-height:13px; }
+.mon .span { grid-row:1; z-index:2; align-self:start; margin-top:18px; height:15px;
+             display:flex; align-items:center; gap:5px; padding:0 7px;
+             border-radius:4px; font-size:9.5px; font-weight:650;
+             white-space:nowrap; overflow:hidden; color:#15171c; }
+.mon .span.contL { border-top-left-radius:0; border-bottom-left-radius:0; padding-left:5px; }
+.mon .span.contR { border-top-right-radius:0; border-bottom-right-radius:0; padding-right:5px; }
+.mon .span .ar { opacity:.55; font-size:10px; }
+.mon .c.out { opacity:.32; }
+.mon .c.we .dnum { color:#8a6f78; }
+.mon .c.today { background:var(--accent-dim); }
+.mon .c.today .dnum { color:var(--accent); font-weight:750; }
+.mon .c.sel { border-color:var(--accent); box-shadow:inset 2px 0 0 var(--accent); }
+.mon .dnum { font-size:11px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+.mon .pin { display:flex; align-items:center; gap:4px; font-size:9.5px; color:var(--text-secondary);
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.55; }
+.mon .pin i { width:3px; height:9px; border-radius:2px; flex:none; }
+.mon .plus { font-size:9.5px; color:var(--text-muted); }
+.mon .daybar { display:flex; align-items:center; gap:9px; padding:9px 2px 2px;
+               border-top:1px solid var(--border); margin-top:8px; font-size:var(--fs-xs); }
+.mon .daybar b { font-weight:640; color:var(--text-secondary); }
+.mon .daybar .s { color:var(--text-muted); }
+
+/* ── 빈 시간 슬롯 ── */
+.slots { padding:var(--sp-2) var(--sp-4); }
+.slot { display:flex; align-items:center; gap:var(--sp-3); padding:9px 10px;
+        border-radius:var(--r-sm); border:1px solid transparent; }
+.slot.sel { background:var(--accent-dim); box-shadow:inset 2px 0 0 var(--accent); }
+.slot .ck { width:14px; height:14px; border-radius:4px; border:1.5px solid var(--border);
+            flex:none; position:relative; }
+.slot .ck.on { background:var(--accent); border-color:var(--accent); }
+.slot .ck.on::after { content:"✓"; position:absolute; inset:-3px 0 0 1px; font-size:11px; color:#16171c; }
+.slot .when { font-size:var(--fs-md); flex:none; width:188px; }
+.slot .when em { font-style:normal; color:var(--text-muted); font-size:var(--fs-xs); margin-left:6px; }
+.slot .gap { flex:1; font-size:var(--fs-xs); color:var(--text-muted); display:flex; align-items:center; gap:7px; }
+.slot .len { flex:none; font-size:var(--fs-xs); color:var(--success); font-weight:650; }
+.slot .vis { flex:none; width:104px; height:7px; border-radius:99px; background:var(--bg-hover); position:relative; overflow:hidden; }
+.slot .vis i { position:absolute; top:0; bottom:0; background:var(--success); opacity:.75; }
+.slot .vis u { position:absolute; top:0; bottom:0; background:var(--text-muted); opacity:.5; }
+.askbar { display:flex; align-items:center; gap:10px; padding:10px var(--sp-4) 4px; font-size:var(--fs-sm); }
+.askbar .segbtn i { padding:3px 11px; }
+
+/* ── 복사 미리보기 ── */
+.copybox { margin:11px var(--sp-4) 0; padding:12px 14px; border-radius:var(--r-sm);
+           background:var(--bg-inset); border:1px solid var(--border);
+           font-size:var(--fs-sm); line-height:1.95; color:var(--text-secondary); white-space:pre-line; }
+.copybox .hd { font-size:10.5px; color:var(--text-muted); margin-bottom:7px; letter-spacing:.3px; }
+
+/* ── 검색 ── */
+.search { display:flex; align-items:center; gap:9px; padding:8px var(--sp-4);
+          border-bottom:1px solid var(--border); background:var(--bg-inset); flex:none; }
+.search .ico { color:var(--text-muted); font-family:var(--font-mono); font-size:var(--fs-md); }
+.search .in { flex:1; font-size:var(--fs-md); color:var(--text-primary); }
+.search .in .caret { display:inline-block; width:1.5px; height:15px; background:var(--accent);
+                     vertical-align:-3px; margin-left:1px; animation:blink 1.05s step-end infinite; }
+.search .cnt { font-size:var(--fs-xs); color:var(--text-muted); }
+.hit { background:rgba(224,175,104,.22); border-radius:3px; padding:0 2px; color:var(--warning); }
+
+.note { margin-top:34px; padding:16px 19px; border-radius:var(--r-md);
+        background:var(--bg-app); border:1px solid var(--border);
+        font-size:12.5px; color:var(--text-muted); line-height:1.95; }
+.note b { color:var(--text-primary); }
+.note h3 { font-size:13px; color:var(--text-primary); margin:14px 0 5px; }
+.note h3:first-child { margin-top:0; }
+.note ul { margin:0 0 0 17px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>WHENCALENDAR — 일정 등록·관리 화면</h1>
+<p class="lede">
+  토큰·레이아웃·키 관습은 <b>whenwork / whennote</b>에서 그대로 가져왔습니다 —
+  <code>app &gt; header(제목+탭+날짜) &gt; body &gt; footer(동기화 LED + 힌트)</code>,
+  <kbd>?</kbd> 키맵, <kbd>Tab</kbd> 탭 전환, 선택행에 accent 인셋.<br>
+  <b>진행 중</b>을 뜻하는 청록(<code>--live</code>)만 새로 추가했습니다 — 오버레이 아일랜드의 그 색입니다.
+</p>
+
+<div class="shelf">
+
+  <!-- 1. 오늘 -->
+  <div class="mock">
+    <div class="cap"><b>1 · 오늘</b><span>지나간 것은 물러나고, 지금 위치에 붉은 선. 다음 하나만 accent.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body"><div class="tl">
+        <div class="seghead"><b>오전</b><i></i></div>
+        <div class="ev past">
+          <span class="clock">09:30–10:00</span><span class="bar"></span>
+          <span class="main"><span class="t">데일리 스크럼</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span>매주 반복</span></span>
+          <span class="rt">끝남</span>
+        </div>
+        <div class="ev past">
+          <span class="clock">11:00–12:00</span><span class="bar"></span>
+          <span class="main"><span class="t">스펙 리뷰</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span></span></span>
+          <span class="rt">끝남</span>
+        </div>
+
+        <div class="seghead"><b>오후</b><i></i></div>
+        <div class="ev live">
+          <span class="clock">13:30–14:30</span><span class="bar"></span>
+          <span class="main"><span class="t">디자인 리뷰</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span>회의실 B</span></span>
+          <span class="rt">21분 뒤 종료</span>
+        </div>
+        <div class="nowline"><span class="bead"></span><span class="lbl">14:09</span><span class="ln"></span></div>
+        <div class="ev next sel">
+          <span class="clock">16:00–16:30</span><span class="bar"></span>
+          <span class="main"><span class="t">1:1 미팅</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-2)"></span>개인</span>직접 등록</span></span>
+          <span class="rt">1시간 51분</span>
+        </div>
+        <div class="ev">
+          <span class="clock">19:00</span><span class="bar"></span>
+          <span class="main"><span class="t">치과</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-2)"></span>개인</span>종일 아님 · 30분</span></span>
+          <span class="rt">4시간 51분</span>
+        </div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>N</kbd> 새 일정</span><span><kbd>Enter</kbd> 상세</span><span><kbd>?</kbd> 키</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 2. 새 일정 -->
+  <div class="mock">
+    <div class="cap"><b>2 · 새 일정 <kbd>N</kbd></b><span>한 줄로 받고 해석 결과를 바로 보여준다. 애매하면 노란색으로 되묻는다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body">
+        <div class="tl" style="opacity:.28">
+          <div class="seghead"><b>오후</b><i></i></div>
+          <div class="ev"><span class="clock">13:30–14:30</span><span class="bar"></span>
+            <span class="main"><span class="t">디자인 리뷰</span></span></div>
+          <div class="ev"><span class="clock">16:00–16:30</span><span class="bar"></span>
+            <span class="main"><span class="t">1:1 미팅</span></span></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="dlg">
+          <label>새 일정 — 한 줄로 적으세요</label>
+          <div class="in">담주 화 3시 김부장 미팅 1시간<span class="caret"></span></div>
+          <div class="parse">
+            <b>9월 23일 (화) 15:00 – 16:00</b> · 김부장 미팅<br>
+            <span class="q">＊ “3시”를 오후로 봤습니다 — <kbd>Alt</kbd>+<kbd>T</kbd>로 오전 전환</span>
+          </div>
+          <div class="foot"><span><kbd>Enter</kbd> 등록</span><span><kbd>Tab</kbd> 상세 입력</span><span><kbd>Esc</kbd> 취소</span></div>
+        </div>
+      </div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span>해석은 로컬에서 · 서버로 나가지 않음</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 3. 상세 -->
+  <div class="mock">
+    <div class="cap"><b>3 · 상세 <kbd>Enter</kbd></b><span>목록을 밀어내지 않고 오른쪽에 붙인다. 편집은 전부 한 글자 키.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body">
+        <div class="tl" style="padding-right:306px">
+          <div class="seghead"><b>오후</b><i></i></div>
+          <div class="ev live"><span class="clock">13:30–14:30</span><span class="bar"></span>
+            <span class="main"><span class="t">디자인 리뷰</span>
+              <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span></span></span></div>
+          <div class="nowline"><span class="bead"></span><span class="lbl">14:09</span><span class="ln"></span></div>
+          <div class="ev next sel"><span class="clock">16:00–16:30</span><span class="bar"></span>
+            <span class="main"><span class="t">1:1 미팅</span>
+              <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-2)"></span>개인</span></span></span></div>
+          <div class="ev"><span class="clock">19:00</span><span class="bar"></span>
+            <span class="main"><span class="t">치과</span></span></div>
+        </div>
+        <div class="detail">
+          <div class="dt">1:1 미팅</div>
+          <div style="height:11px"></div>
+          <div class="dl"><b>언제</b><span>9월 17일 (목)<br>16:00 – 16:30 · 30분</span></div>
+          <div class="dl"><b>남음</b><span style="color:var(--accent);font-weight:650">1시간 51분</span></div>
+          <div class="dl"><b>달력</b><span><span class="chip"><span class="dot" style="background:var(--cal-2)"></span>개인</span></span></div>
+          <div class="dl"><b>출처</b><span>직접 등록</span></div>
+          <div class="dl"><b>반복</b><span>없음</span></div>
+          <div class="dl"><b>알림</b><span>10분 전</span></div>
+          <div class="acts">
+            <div><kbd>E</kbd> 제목</div>
+            <div><kbd>D</kbd> 날짜·시각</div>
+            <div><kbd>R</kbd> 반복</div>
+            <div><kbd>A</kbd> 알림</div>
+            <div><kbd>C</kbd> 달력 옮기기</div>
+            <div><kbd>X</kbd> 삭제 <span style="color:var(--text-muted)">· <kbd>U</kbd> 되돌리기</span></div>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>Esc</kbd> 닫기</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 4. 주 -->
+  <div class="mock">
+    <div class="cap"><b>4 · 주</b><span>격자 달력을 쓰지 않는다 — 키보드로 훑는 데는 세로 목록이 빠르다. 위 띠는 요일별 밀도만.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab on">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 14일 – 20일</span>
+      </header>
+      <div class="body"><div class="wk">
+        <div class="wkstrip">
+          <span class="d"><span class="dw">월</span><div class="dd">14</div><span class="load"><i></i><i></i></span></span>
+          <span class="d"><span class="dw">화</span><div class="dd">15</div><span class="load"><i></i></span></span>
+          <span class="d"><span class="dw">수</span><div class="dd">16</div><span class="load"><i></i><i></i></span></span>
+          <span class="d today on"><span class="dw">목</span><div class="dd">17</div><span class="load"><i class="a"></i><i class="a"></i><i class="a"></i></span></span>
+          <span class="d"><span class="dw">금</span><div class="dd">18</div><span class="load"><i></i><i></i><i></i><i></i></span></span>
+          <span class="d"><span class="dw">토</span><div class="dd">19</div><span class="load"></span></span>
+          <span class="d"><span class="dw">일</span><div class="dd">20</div><span class="load"></span></span>
+        </div>
+        <div class="wkday"><b>오늘 · 9/17 목</b><span>3건</span><i></i></div>
+        <div class="ev past"><span class="clock">09:30</span><span class="bar"></span>
+          <span class="main"><span class="t">데일리 스크럼</span></span><span class="rt">끝남</span></div>
+        <div class="ev live"><span class="clock">13:30</span><span class="bar"></span>
+          <span class="main"><span class="t">디자인 리뷰</span></span><span class="rt">진행 중</span></div>
+        <div class="ev next sel"><span class="clock">16:00</span><span class="bar"></span>
+          <span class="main"><span class="t">1:1 미팅</span></span><span class="rt">1시간 51분</span></div>
+        <div class="wkday"><b>내일 · 9/18 금</b><span>4건</span><i></i></div>
+        <div class="ev"><span class="clock">10:00</span><span class="bar"></span>
+          <span class="main"><span class="t">스프린트 계획</span></span><span class="rt">2시간</span></div>
+        <div class="ev"><span class="clock">14:00</span><span class="bar"></span>
+          <span class="main"><span class="t">외부 미팅 — 포커스</span></span><span class="rt">1시간</span></div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>←→</kbd> 주 이동</span><span><kbd>G</kbd> 빈 시간 찾기</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 5. 구독 -->
+  <div class="mock">
+    <div class="cap"><b>5 · 구독 — 로딩·에러 포함</b><span>세 줄이 각각 성공·동기화 중·실패. 실패는 무엇을 하라는지까지 적는다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab on">구독 <span class="n">3</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body"><div class="subs">
+        <div class="sub sel">
+          <span class="sw" style="background:var(--cal-1)"></span>
+          <span class="main"><span class="nm">회사 캘린더</span>
+            <span class="url">https://calendar.google.com/calendar/ical/…/basic.ics</span></span>
+          <span class="st ok">읽기 전용 · 2분 전</span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="pal">
+          <span class="lb"><kbd>C</kbd> 색</span>
+          <span class="sw2 on" style="background:var(--cal-1)"></span>
+          <span class="sw2" style="background:var(--cal-2)"></span>
+          <span class="sw2" style="background:var(--cal-3)"></span>
+          <span class="sw2" style="background:var(--cal-4)"></span>
+          <span class="sw2" style="background:var(--cal-5)"></span>
+          <span class="sw2" style="background:var(--cal-6)"></span>
+          <span class="lb" style="margin-left:6px">추가할 때 자동으로 정해집니다 · 여기서 바꿔요</span>
+        </div>
+        <div class="sub">
+          <span class="sw" style="background:var(--cal-3)"></span>
+          <span class="main"><span class="nm">가족 일정</span>
+            <span class="url">https://calendar.google.com/calendar/ical/…/public/basic.ics</span></span>
+          <span class="st load"><span class="led load"></span>동기화 중…</span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="sub">
+          <span class="sw" style="background:var(--cal-5)"></span>
+          <span class="main"><span class="nm">스터디 모임</span>
+            <span class="url">https://example.com/cal/study.ics</span></span>
+          <span class="st err">실패 · 3시간 전</span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="errbox">
+          <b>404 — 주소를 찾을 수 없습니다.</b> 캘린더가 비공개로 바뀌었거나 주소가 만료됐습니다.
+          구글 캘린더 설정 → 캘린더 통합 → <b>비공개 주소(iCal 형식)</b>를 다시 복사해 <kbd>E</kbd>로 바꿔 주세요.
+          마지막으로 받아온 일정은 그대로 두었습니다.
+        </div>
+        <div style="margin:14px 0 0 10px">
+          <div class="sub" style="padding-left:0">
+            <span class="sw" style="background:var(--cal-2)"></span>
+            <span class="main"><span class="nm">개인 (이 PC)</span>
+              <span class="url">%APPDATA%\whencalendar\store.sqlite · 직접 등록한 일정</span></span>
+            <span class="st ok">항상 사용</span>
+          </div>
+        </div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led warn"></span><span>1개 실패</span></span>
+        <span class="foot-hints"><span><kbd>A</kbd> 추가</span><span><kbd>R</kbd> 새로고침</span><span><kbd>Space</kbd> 켜기·끄기</span><span><kbd>X</kbd> 삭제</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 6. 설정 -->
+  <div class="mock">
+    <div class="cap"><b>6 · 설정 — 오버레이</b><span>값을 바꾸면 바로 위 미리보기가 같이 바뀐다. 말로 설명하지 않는다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab on">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body"><div class="set">
+        <div class="ovprev">
+          <span class="isle">
+            <svg class="ring" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(140,148,160,.26)" stroke-width="2.6"/>
+              <circle cx="12" cy="12" r="9" fill="none" stroke="#e0af68" stroke-width="2.6"
+                      stroke-linecap="round" stroke-dasharray="56.5" stroke-dashoffset="34" transform="rotate(-90 12 12)"/>
+            </svg>
+            <span class="rt">1:1 미팅</span><span class="rl">18분 남음</span>
+            <span class="dots"><i class="a"></i><i></i></span>
+          </span>
+        </div>
+        <div class="grp">오버레이</div>
+        <div class="row sel"><span class="lb">펼치기 시작<small>이 시간부터 이름과 남은 시간이 나온다</small></span>
+          <span class="slider" style="margin-right:10px"><i style="width:54%"></i><u style="left:54%"></u></span>
+          <span class="val">30분 전</span></div>
+        <div class="row"><span class="lb">완전히 펼침</span>
+          <span class="slider" style="margin-right:10px"><i style="width:22%"></i><u style="left:22%"></u></span>
+          <span class="val">10분 전</span></div>
+        <div class="row"><span class="lb">링 크기</span>
+          <span class="segbtn"><i>16</i><i class="on">20</i><i>26</i></span></div>
+        <div class="row"><span class="lb">위치</span>
+          <span class="segbtn"><i class="on">위 가운데</i><i>위 오른쪽</i><i>아래 가운데</i></span></div>
+        <div class="row"><span class="lb">모니터</span>
+          <span class="segbtn"><i class="on">주 모니터</i><i>전부</i></span></div>
+        <div class="row"><span class="lb">끝나기 5분 전 알리기<small>회의가 길어질 때 마무리 신호</small></span>
+          <span class="segbtn"><i class="on">켬</i><i>끔</i></span></div>
+        <div class="grp">일반</div>
+        <div class="row"><span class="lb">로그인할 때 자동 시작</span><span class="segbtn"><i class="on">켬</i><i>끔</i></span></div>
+        <div class="row"><span class="lb">데이터 폴더<small>%APPDATA%\whencalendar</small></span>
+          <span class="val" style="font-size:var(--fs-xs)"><kbd>O</kbd> 열기</span></div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>저장됨</span></span>
+        <span class="foot-hints"><span><kbd>←→</kbd> 값 바꾸기</span><span><kbd>R</kbd> 업데이트 확인</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 7. 빈 상태 -->
+  <div class="mock">
+    <div class="cap"><b>7 · 빈 상태 — 첫 실행</b><span>구독이 없으면 할 일이 하나뿐이다. 그것만 말한다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘</span><span class="tab">주</span><span class="tab">월</span>
+          <span class="tab">구독</span><span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body"><div class="empty">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#3b4050" stroke-width="1.4">
+          <rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/>
+        </svg>
+        <div class="big">아직 볼 일정이 없습니다</div>
+        <div class="hint">
+          구글 캘린더 설정 → 캘린더 통합 → <b style="color:var(--text-secondary)">비공개 주소(iCal 형식)</b>를 복사해 붙이면<br>
+          회사·개인 일정이 그대로 들어옵니다. 로그인은 필요 없습니다.<br><br>
+          <kbd>A</kbd> 구독 추가 &nbsp;·&nbsp; <kbd>N</kbd> 이 PC에 직접 등록
+        </div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led warn"></span><span>구독 없음</span></span>
+        <span class="foot-hints"><span><kbd>?</kbd> 키</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 8. 키맵 -->
+  <div class="mock">
+    <div class="cap"><b>8 · 키맵 <kbd>?</kbd></b><span>whenwork와 같은 자리·같은 모양. 두 앱을 오갈 때 손이 헷갈리지 않아야 한다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="body">
+        <div class="tl" style="opacity:.2">
+          <div class="seghead"><b>오후</b><i></i></div>
+          <div class="ev"><span class="clock">13:30</span><span class="bar"></span>
+            <span class="main"><span class="t">디자인 리뷰</span></span></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="keys">
+          <div class="kh">키<span>? · Esc 로 닫기</span></div>
+          <div class="kbody">
+            <div class="kgrp">이동</div>
+            <div class="krow"><kbd>Tab</kbd><span>탭 전환</span></div>
+            <div class="krow"><kbd>j</kbd><kbd>k</kbd><span>위아래</span></div>
+            <div class="krow"><kbd>←</kbd><kbd>→</kbd><span>날짜·주 이동</span></div>
+            <div class="krow"><kbd>t</kbd><span>오늘로</span></div>
+            <div class="krow"><kbd>/</kbd><span>검색</span></div>
+            <div class="kgrp">일정</div>
+            <div class="krow"><kbd>N</kbd><span>새 일정 (한 줄)</span></div>
+            <div class="krow"><kbd>Enter</kbd><span>상세 열기</span></div>
+            <div class="krow"><kbd>E</kbd><span>제목</span></div>
+            <div class="krow"><kbd>D</kbd><span>날짜·시각</span></div>
+            <div class="krow"><kbd>R</kbd><span>반복</span></div>
+            <div class="krow"><kbd>A</kbd><span>알림</span></div>
+            <div class="krow"><kbd>X</kbd><span>삭제</span></div>
+            <div class="krow"><kbd>U</kbd><span>되돌리기</span></div>
+            <div class="kgrp">시간 찾기</div>
+            <div class="krow"><kbd>G</kbd><span>빈 시간 찾기</span></div>
+            <div class="krow"><kbd>Y</kbd><span>가능 시간 복사</span></div>
+            <div class="kgrp">그 밖</div>
+            <div class="krow"><kbd>O</kbd><span>오버레이 잠시 끄기</span></div>
+            <div class="krow"><kbd>Ctrl</kbd><kbd>,</kbd><span>설정</span></div>
+            <div class="krow"><kbd>Esc</kbd><span>닫기 · 트레이로</span></div>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span>전역 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> 창 열기·닫기</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 9. 월 격자 -->
+  <div class="mock">
+    <div class="cap"><b>9 · 월 — 격자</b><span>조망 전용. 훑기는 주 탭이 맡고 여기는 "다음 달이 어떻게 생겼나"를 본다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab on">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">2026년 9월</span>
+      </header>
+      <div class="body"><div class="mon">
+        <div class="dow"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="we">토</span><span class="we">일</span></div>
+        <div class="cells">
+          <div class="wkrow">
+            <div class="c out"><span class="dnum">31</span></div>
+            <div class="c"><span class="dnum">1</span><span class="pin"><i style="background:var(--cal-1)"></i>스크럼</span></div>
+            <div class="c"><span class="dnum">2</span></div>
+            <div class="c"><span class="dnum">3</span><span class="pin"><i style="background:var(--cal-1)"></i>스프린트</span></div>
+            <div class="c"><span class="dnum">4</span></div>
+            <div class="c we"><span class="dnum">5</span></div>
+            <div class="c we"><span class="dnum">6</span></div>
+          </div>
+
+          <div class="wkrow">
+            <div class="c"><span class="dnum">7</span><span class="pin"><i style="background:var(--cal-1)"></i>스크럼</span></div>
+            <div class="c"><span class="dnum">8</span><span class="pin"><i style="background:var(--cal-2)"></i>병원</span></div>
+            <div class="c"><span class="dnum">9</span></div>
+            <div class="c"><span class="dnum">10</span><span class="pin"><i style="background:var(--cal-1)"></i>리뷰</span><span class="pin"><i style="background:var(--cal-1)"></i>회고</span></div>
+            <div class="c"><span class="dnum">11</span></div>
+            <div class="c we"><span class="dnum">12</span></div>
+            <div class="c we"><span class="dnum">13</span></div>
+          </div>
+
+          <!-- 레인 2줄 — 긴 것(스프린트)이 위로 간다 -->
+          <div class="wkrow hasspan lane2">
+            <div class="c"><span class="dnum">14</span><span class="pin"><i style="background:var(--cal-1)"></i>스크럼</span></div>
+            <div class="c"><span class="dnum">15</span><span class="pin"><i style="background:var(--cal-3)"></i>학부모</span></div>
+            <div class="c"><span class="dnum">16</span><span class="pin"><i style="background:var(--cal-1)"></i>스펙</span></div>
+            <div class="c today sel"><span class="dnum">17</span>
+              <span class="pin"><i style="background:var(--cal-1)"></i>디자인 리뷰</span>
+              <span class="pin"><i style="background:var(--cal-2)"></i>1:1</span></div>
+            <div class="c"><span class="dnum">18</span>
+              <span class="pin"><i style="background:var(--cal-1)"></i>외부 미팅</span></div>
+            <div class="c we"><span class="dnum">19</span></div>
+            <div class="c we"><span class="dnum">20</span></div>
+            <div class="span"    style="grid-column:1/6; background:var(--cal-1)">스프린트 12</div>
+            <div class="span l2" style="grid-column:5/7; background:var(--cal-6)">개발 워크숍</div>
+          </div>
+
+          <!-- 레인이 셋 필요한 주 — 두 줄까지만 그리고 나머지는 +1 -->
+          <div class="wkrow hasspan lane2">
+            <div class="c"><span class="dnum">21</span><span class="pin"><i style="background:var(--cal-1)"></i>스크럼</span></div>
+            <div class="c"><span class="dnum">22</span></div>
+            <div class="c"><span class="dnum">23</span><span class="pin"><i style="background:var(--cal-2)"></i>김부장</span></div>
+            <div class="c"><span class="dnum">24</span></div>
+            <div class="c"><span class="dnum">25</span><span class="pin"><i style="background:var(--cal-4)"></i>마감</span></div>
+            <div class="c we"><span class="dnum">26</span></div>
+            <div class="c we"><span class="dnum">27</span></div>
+            <div class="span"    style="grid-column:2/7; background:var(--cal-6)">디자인 컨퍼런스</div>
+            <!-- 주 경계를 넘어간다 — 오른쪽이 잘렸다 -->
+            <div class="span l2 contR" style="grid-column:4/8; background:var(--cal-3)">제주 출장<span class="ar">▸</span></div>
+            <div class="morespan" style="grid-column:7/8"><span>+1</span></div>
+          </div>
+
+          <div class="wkrow hasspan">
+            <div class="c"><span class="dnum">28</span><span class="pin"><i style="background:var(--cal-1)"></i>스크럼</span></div>
+            <div class="c"><span class="dnum">29</span></div>
+            <div class="c"><span class="dnum">30</span><span class="pin"><i style="background:var(--cal-2)"></i>치과</span></div>
+            <div class="c out"><span class="dnum">1</span></div>
+            <div class="c out"><span class="dnum">2</span></div>
+            <div class="c out we"><span class="dnum">3</span></div>
+            <div class="c out we"><span class="dnum">4</span></div>
+            <!-- 앞 주에서 이어진 조각 — 왼쪽이 잘렸다 -->
+            <div class="span contL" style="grid-column:1/2; background:var(--cal-3)"><span class="ar">◂</span>출장</div>
+          </div>
+        </div>
+        <div class="daybar"><b>9월 17일 (목)</b><span class="s">디자인 리뷰 13:30 · 1:1 미팅 16:00 · 치과 19:00</span></div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>hjkl</kbd> 날짜 이동</span><span><kbd>Enter</kbd> 그 날 열기</span><span><kbd>←→</kbd> 달 이동</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 10. 빈 시간 찾기 -->
+  <div class="mock">
+    <div class="cap"><b>10 · 빈 시간 찾기 <kbd>G</kbd></b><span>캘린더만 답할 수 있는 질문. 막대가 앞뒤 일정 사이 어디가 비는지 보여준다.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab on">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 – 24일</span>
+      </header>
+      <div class="body">
+        <div class="askbar">
+          <span style="color:var(--text-muted);font-size:var(--fs-xs)">얼마나</span>
+          <span class="segbtn"><i>30분</i><i class="on">1시간</i><i>2시간</i><i>반나절</i></span>
+          <span style="color:var(--text-muted);font-size:var(--fs-xs);margin-left:8px">시간대</span>
+          <span class="segbtn"><i class="on">업무 시간</i><i>아무 때나</i></span>
+          <span style="margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted)">7일 안에 <b style="color:var(--success)">6곳</b></span>
+        </div>
+        <div class="slots">
+          <div class="slot sel">
+            <span class="ck on"></span>
+            <span class="when">9/17 (목) 14:30–16:00<em>오늘</em></span>
+            <span class="vis"><u style="left:0;width:26%"></u><i style="left:26%;width:44%"></i><u style="left:70%;width:30%"></u></span>
+            <span class="gap">디자인 리뷰 뒤 · 1:1 앞</span>
+            <span class="len">1시간 30분</span>
+          </div>
+          <div class="slot">
+            <span class="ck on"></span>
+            <span class="when">9/18 (금) 11:00–14:00<em>내일</em></span>
+            <span class="vis"><u style="left:0;width:18%"></u><i style="left:18%;width:58%"></i><u style="left:76%;width:24%"></u></span>
+            <span class="gap">스프린트 계획 뒤 · 외부 미팅 앞</span>
+            <span class="len">3시간</span>
+          </div>
+          <div class="slot">
+            <span class="ck"></span>
+            <span class="when">9/21 (월) 09:00–11:00</span>
+            <span class="vis"><i style="left:0;width:62%"></i><u style="left:62%;width:38%"></u></span>
+            <span class="gap">하루 시작 · 스크럼 앞</span>
+            <span class="len">2시간</span>
+          </div>
+          <div class="slot">
+            <span class="ck on"></span>
+            <span class="when">9/22 (화) 13:00–17:00</span>
+            <span class="vis"><i style="left:8%;width:84%"></i></span>
+            <span class="gap">하루 종일 비어 있음</span>
+            <span class="len">4시간</span>
+          </div>
+          <div class="slot">
+            <span class="ck"></span>
+            <span class="when">9/24 (목) 15:00–16:30</span>
+            <span class="vis"><u style="left:0;width:34%"></u><i style="left:34%;width:42%"></i><u style="left:76%;width:24%"></u></span>
+            <span class="gap">리뷰 뒤 · 스크럼 앞</span>
+            <span class="len">1시간 30분</span>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>Space</kbd> 고르기</span><span><kbd>Enter</kbd> 여기에 일정</span><span><kbd>Y</kbd> 고른 것 복사</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 11. 가능 시간 복사 -->
+  <div class="mock">
+    <div class="cap"><b>11 · 가능 시간 복사 <kbd>Y</kbd></b><span>클립보드로만 나간다. 메일·카톡에 붙이는 건 사람이 한다 — whenmail의 "초안까지만"과 같은 선.</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab">오늘 <span class="n">3</span></span>
+          <span class="tab on">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 – 24일</span>
+      </header>
+      <div class="body">
+        <div class="askbar">
+          <span style="color:var(--text-muted);font-size:var(--fs-xs)">형식</span>
+          <span class="segbtn"><i class="on">목록</i><i>문장</i><i>표</i></span>
+          <span style="color:var(--text-muted);font-size:var(--fs-xs);margin-left:8px">말투</span>
+          <span class="segbtn"><i>평어</i><i class="on">높임</i></span>
+          <span style="margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted)">고른 <b style="color:var(--accent)">3곳</b></span>
+        </div>
+        <div class="copybox">
+          <div class="hd">클립보드에 들어갈 내용</div>안녕하세요, 아래 시간 중에 편하신 때를 알려주시면 맞추겠습니다.
+
+• 9월 17일 (목) 14:30 – 16:00
+• 9월 18일 (금) 11:00 – 14:00
+• 9월 22일 (화) 13:00 – 17:00
+
+감사합니다.</div>
+        <div style="padding:13px var(--sp-4) 0; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.9">
+          일정 제목은 넣지 않습니다 — 상대에게 <b style="color:var(--text-secondary)">내 일정 내용이 새어 나가지 않도록</b> 빈 시간만 적습니다.<br>
+          <kbd>H</kbd>로 “가능한 시간이 없으면 말씀해 주세요” 같은 꼬리말을 켜고 끌 수 있습니다.
+        </div>
+        <div class="toast" style="bottom:20px"><span class="dot"></span>복사했습니다 · 3곳</div>
+      </div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span><kbd>Enter</kbd> 복사</span><span><kbd>Esc</kbd> 돌아가기</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+  <!-- 12. 검색 -->
+  <div class="mock">
+    <div class="cap"><b>12 · 검색 <kbd>/</kbd></b><span>whenwork와 같은 자리·같은 모양. 지난 일정도 찾는다 — "그 회의 언제였지".</span></div>
+    <div class="win"><div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs">
+          <span class="tab on">오늘 <span class="n">3</span></span>
+          <span class="tab">주 <span class="n">11</span></span>
+          <span class="tab">월</span>
+          <span class="tab">구독 <span class="n">2</span></span>
+          <span class="tab">설정</span>
+        </nav>
+        <span class="date">9월 17일 목</span>
+      </header>
+      <div class="search">
+        <span class="ico">/</span>
+        <span class="in">리뷰<span class="caret"></span></span>
+        <span class="cnt">5건</span>
+      </div>
+      <div class="body"><div class="tl">
+        <div class="seghead"><b>앞으로</b><i></i></div>
+        <div class="ev next sel">
+          <span class="clock">오늘 13:30</span><span class="bar"></span>
+          <span class="main"><span class="t">디자인 <span class="hit">리뷰</span></span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span>회의실 B</span></span>
+          <span class="rt">진행 중</span>
+        </div>
+        <div class="ev">
+          <span class="clock">9/24 (목)</span><span class="bar"></span>
+          <span class="main"><span class="t">스펙 <span class="hit">리뷰</span></span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span>매주 반복</span></span>
+          <span class="rt">7일 뒤</span>
+        </div>
+        <div class="seghead"><b>지난 일정</b><i></i></div>
+        <div class="ev past">
+          <span class="clock">9/10 (목)</span><span class="bar"></span>
+          <span class="main"><span class="t">코드 <span class="hit">리뷰</span> 회고</span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span></span></span>
+          <span class="rt">7일 전</span>
+        </div>
+        <div class="ev past">
+          <span class="clock">9/3 (목)</span><span class="bar"></span>
+          <span class="main"><span class="t">스펙 <span class="hit">리뷰</span></span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span></span></span>
+          <span class="rt">14일 전</span>
+        </div>
+        <div class="ev past">
+          <span class="clock">8/27 (목)</span><span class="bar"></span>
+          <span class="main"><span class="t">디자인 <span class="hit">리뷰</span></span>
+            <span class="sub"><span class="chip"><span class="dot" style="background:var(--cal-1)"></span>회사</span></span></span>
+          <span class="rt">21일 전</span>
+        </div>
+      </div></div>
+      <footer>
+        <span class="sync"><span class="led"></span><span>2분 전 동기화</span></span>
+        <span class="foot-hints"><span>초성 <kbd>ㄷㅈㅇ</kbd> 도 찾음</span><span><kbd>Esc</kbd> 검색 끄기</span></span>
+      </footer>
+    </div></div>
+  </div>
+
+</div>
+
+<div class="note">
+  <h3>상속한 것</h3>
+  <ul>
+    <li><b>토큰 전부</b> — 색·타이포·간격·라운드·섀도는 <code>renderer/tokens.css</code> 그대로. 새로 만든 건 <code>--live</code>(진행 중 청록) 하나뿐이고, 그것도 오버레이 아일랜드에서 이미 쓰는 값이다.</li>
+    <li><b>레이아웃 골격</b> — <code>app &gt; header &gt; body &gt; footer</code>, 탭에 숫자 배지, footer 왼쪽 동기화 LED·오른쪽 힌트.</li>
+    <li><b>키 관습</b> — <kbd>Tab</kbd> 탭, <kbd>j</kbd><kbd>k</kbd> 이동, <kbd>E</kbd> 제목, <kbd>X</kbd> 삭제, <kbd>U</kbd> 되돌리기, <kbd>?</kbd> 키맵, <kbd>/</kbd> 검색. whenwork와 같은 글자에 같은 뜻을 붙였다.</li>
+  </ul>
+
+  <h3>새로 정한 것</h3>
+  <ul>
+    <li><b>주 뷰에 격자 달력을 쓰지 않는다.</b> 격자는 마우스로 훑는 물건이다. 이 시리즈는 키보드로 움직이고, <kbd>j</kbd><kbd>k</kbd>로 내려가는 데는 세로 목록이 빠르다. 대신 위에 요일별 밀도 띠를 둬서 "어느 날이 빡센지"는 한눈에 보이게 했다.</li>
+    <li><b>지금 시각에 붉은 선.</b> 목록에서 과거와 미래를 가르는 유일한 표식이고, 지나간 일정은 흐려진다.</li>
+    <li><b>새 일정은 한 줄.</b> 받자마자 해석 결과를 보여주고, 애매한 건 노란색으로 되묻는다(“3시를 오후로 봤습니다”). 바로 등록하지 않는 건 whenmail의 “초안까지만”과 같은 규칙이다.</li>
+    <li><b>구독 실패는 원인과 다음 행동까지 적는다.</b> “동기화 실패”로 끝내지 않는다. 그리고 <b>마지막에 받아온 일정은 지우지 않는다</b> — 네트워크가 죽었다고 오늘 일정이 사라지면 안 된다.</li>
+    <li><b>설정에 미리보기를 붙인다.</b> “펼치기 시작 30분 전”이 무슨 뜻인지는 글로 설명할 수 없다. 값을 바꾸면 위 아일랜드가 같이 변한다.</li>
+  </ul>
+
+  <h3>추가로 확정한 것 (화면 9~12)</h3>
+  <ul>
+    <li><b>격자는 월 탭으로 뺐다.</b> 주와 월이 역할을 나눠 갖는다 — <b>주는 훑기</b>(세로 목록, <kbd>j</kbd><kbd>k</kbd>), <b>월은 조망</b>(격자, <kbd>hjkl</kbd>). 같은 것을 두 번 보여주는 게 아니라 쓰임이 다르다. 월 격자 칸에는 일정을 최대 2건 + <code>+N</code>까지만 적고, 고른 날의 전체 목록은 아래 한 줄에 펼친다.</li>
+    <li><b>빈 시간 찾기(<kbd>G</kbd>)를 v1에 넣는다.</b> "다음 주에 2시간 연속으로 비는 데"는 할 일 앱이 원리적으로 답할 수 없는 질문이고, 캘린더를 따로 만드는 이유에 가장 가깝다. 막대로 앞뒤 일정 사이 어디가 비는지를 같이 보여준다.</li>
+    <li><b>가능 시간 복사(<kbd>Y</kbd>)는 클립보드까지만.</b> 메일·카톡에 붙이는 건 사람이 한다 — whenmail의 "자동으로 보내지 않는다"와 같은 선이다. <b>일정 제목은 내보내지 않는다</b>: 상대에게 내 일정 내용이 새어 나가면 안 되므로 빈 시간만 적는다.</li>
+    <li><b>검색(<kbd>/</kbd>)은 지난 일정까지 찾는다.</b> 앞으로 올 일정만 찾는 검색은 쓸 데가 없다. 실제 쓰임은 "그 회의 언제였지"라서 과거 구간을 따로 묶어 보여준다. 초성(<kbd>ㄷㅈㅇ</kbd>)도 받는다 — whennote와 같은 규칙.</li>
+  </ul>
+
+  <h3>창 크기 · 색 · 다중일 일정</h3>
+  <ul>
+    <li><b>기본 960×640, 최소 760×540.</b> whenwork(최소 560×420)보다 크다. 월 격자 7열이 답답하지 않으려면 폭이 필요하고,
+        오른쪽 상세 패널(290px)이 목록과 같이 서려면 900은 넘어야 한다. 형제 앱보다 큰 건 담는 것이 달라서다 —
+        whenwork는 한 줄짜리 할 일 목록이고 이쪽은 격자와 시간축이다.</li>
+    <li><b>달력 색 6종</b> — <code>--cal-1…6</code>으로 토큰화했다. Tokyo Night 팔레트 안에서 골랐고,
+        <b>청록 계열은 일부러 뺐다</b> — <code>--live</code>(진행 중, #6eceaf)와 헷갈리면 "이 일정이 진행 중인가"와
+        "이 일정이 무슨 달력인가"가 섞인다. 상태색과 분류색은 절대 겹치면 안 된다.
+        구독 탭에서 <kbd>C</kbd>로 고른다.</li>
+    <li><b>여러 날 일정은 칸 위를 가로지른다.</b> 월 격자 3·4·5주차에서 볼 수 있다.
+        <b>주 경계를 넘으면 두 조각으로 나뉘고, 잘린 쪽 모서리를 각지게</b> 해서 이어짐을 표시한다(<code>▸ ◂</code>).
+        가로지르는 막대가 있는 주는 날짜 숫자를 칸 왼쪽 위에 고정하고 그 아래를 막대에 내준다.</li>
+  </ul>
+
+  <h3>레인 규칙 · 색 배정 (확정)</h3>
+  <ul>
+    <li><b>레인은 두 줄까지, 그 뒤는 <code>+N</code>.</b> 행 높이가 95px 남짓이라 한 레인이 18px씩 먹는다.
+        세 줄을 쌓으면 날짜 숫자와 레인만으로 72px을 써서 <b>정작 그 날의 일정 점이 설 자리가 없다.</b>
+        월 격자는 조망용이고, 자세한 건 그 날을 열면 된다. <code>+N</code> 칩은 배경을 깔아 막대 위에서도 읽히게 했다.</li>
+    <li><b>긴 일정이 위 레인.</b> 짧은 것이 위로 오면 주마다 순서가 뒤바뀌어 눈이 따라가지 못한다.
+        기간이 같으면 먼저 시작한 것이 위다.</li>
+    <li><b>색은 구독을 추가할 때 자동으로 배정</b>하고 <kbd>C</kbd>로 언제든 바꾼다.
+        구독 하나 붙이는 데 색까지 고르라고 하면 마찰만 는다 — 시리즈의 "입력 시점에 분류를 강요하지 않는다"와 같은 규칙이다.</li>
+    <li><b>배정 순서는 <code>파랑 → 보라 → 하늘 → 초록 → 노랑 → 분홍</code>.</b> 여기에 함정이 하나 있어서 순서를 이렇게 잡았다 —
+        <code>--cal-2</code>(초록)는 <code>--success</code>와, <code>--cal-4</code>(노랑)는 <code>--warning</code>과,
+        <code>--cal-5</code>(분홍)는 <code>--danger</code>와 <b>같은 값</b>이다. Tokyo Night 팔레트가 좁아 피할 수 없었다.
+        구독 탭에서는 "동기화 실패(빨강)" 옆에 분홍 스와치가 서면 헷갈리므로,
+        <b>상태를 뜻하는 세 색을 뒤로 미뤄</b> 구독 3개까지는 절대 겹치지 않게 했다.
+        여섯 개를 다 쓰면 가장 적게 쓰인 색부터 재사용한다.</li>
+  </ul>
+
+  <h3>남은 확인거리</h3>
+  <ul>
+    <li>구독이 7개를 넘어 색이 겹칠 때, 같은 색 두 달력을 목록에서 어떻게 구분할지 (이름만으로 충분한지).</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

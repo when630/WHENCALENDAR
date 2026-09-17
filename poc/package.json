@@ -1,0 +1,13 @@
+{
+  "name": "whencalendar-poc",
+  "version": "0.0.1",
+  "private": true,
+  "description": "오버레이 침범 곡선 PoC — 버릴 코드",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.2.0"
+  }
+}
