@@ -26,13 +26,42 @@
         height: 100%;
       }
 
+      /* 제목 표시줄이 없으므로 헤더가 곧 드래그 바다 — 여기를 잡아 창을 옮긴다 */
       header {
         display: flex;
         align-items: center;
         gap: var(--sp-4);
-        padding: 9px var(--sp-4);
+        padding: 6px 6px 6px var(--sp-4);
         border-bottom: 1px solid var(--border);
         flex: none;
+        -webkit-app-region: drag;
+      }
+      .tabs,
+      .winbtns {
+        -webkit-app-region: no-drag;
+      }
+      .winbtns {
+        display: flex;
+        gap: 2px;
+      }
+      .winbtns button {
+        width: 38px;
+        height: 28px;
+        border: none;
+        background: none;
+        color: var(--text-muted);
+        cursor: default;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r-sm);
+      }
+      .winbtns button:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+      .winbtns button#winClose:hover {
+        background: var(--danger);
+        color: #fff;
       }
       header .title {
         font-size: var(--fs-xs);
@@ -55,6 +84,7 @@
         color: var(--text-muted);
         font-size: var(--fs-xs);
         margin-left: auto;
+        padding-right: var(--sp-2);
       }
       .tabs {
         display: flex;
@@ -445,6 +475,18 @@
         <span class="title">WHENCALENDAR</span>
         <nav class="tabs" id="tabs"></nav>
         <span class="date" id="dateLabel"></span>
+        <div class="winbtns">
+          <button id="winMin" title="최소화">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.2">
+              <path d="M1 6h10"></path>
+            </svg>
+          </button>
+          <button id="winClose" title="닫기 (트레이에 남습니다)">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.2">
+              <path d="M1.5 1.5l9 9M10.5 1.5l-9 9"></path>
+            </svg>
+          </button>
+        </div>
       </header>
       <div class="body" id="body"></div>
       <footer>

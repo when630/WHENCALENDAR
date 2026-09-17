@@ -27,7 +27,8 @@ export function createMainWindow(settings) {
       minHeight: MIN_H,
       show: false,
       backgroundColor: '#16171c',
-      autoHideMenuBar: true,
+      // OS 제목 표시줄을 쓰지 않는다 — 헤더가 곧 드래그 바다(형제 앱과 같은 방식).
+      frame: false,
       title: 'WHENCALENDAR',
       webPreferences: { preload: path.join(HERE, 'preload.cjs') },
     });

@@ -454,6 +454,9 @@ el.body.addEventListener('click', (e) => {
   }
 });
 
+document.getElementById('winMin').addEventListener('click', () => window.cal.minimize());
+document.getElementById('winClose').addEventListener('click', () => window.cal.hide());
+
 el.dlgIn.addEventListener('input', () => {
   clearTimeout(parseTimer);
   parseTimer = setTimeout(previewParse, 120);

@@ -63,5 +63,7 @@ export function registerIpc(ctx) {
     reason: store()?.state?.reason ?? null,
   }));
 
+  // 프레임리스라 최소화·닫기도 우리가 맡는다. 닫기는 숨기기다 — 앱은 트레이에 남는다.
   ipcMain.on('win:hide', () => ctx.mainWindow?.hide());
+  ipcMain.on('win:minimize', () => ctx.mainWindow?.window?.minimize());
 }

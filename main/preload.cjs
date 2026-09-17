@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('cal', {
   info: () => ipcRenderer.invoke('app:info'),
   onChanged: (fn) => ipcRenderer.on('cal:changed', () => fn()),
   hide: () => ipcRenderer.send('win:hide'),
+  minimize: () => ipcRenderer.send('win:minimize'),
 });
