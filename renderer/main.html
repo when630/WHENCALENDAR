@@ -602,6 +602,137 @@
         border-color: var(--text-primary);
       }
 
+      /* 검색 (SRCH) */
+      .searchbar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px var(--sp-4);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-inset);
+        flex: none;
+      }
+      .searchbar .ico {
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+      }
+      .searchbar input {
+        flex: 1;
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: var(--fs-md);
+      }
+      .searchbar .cnt {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .hit {
+        background: rgba(224, 175, 104, 0.22);
+        border-radius: 3px;
+        padding: 0 2px;
+        color: var(--warning);
+      }
+
+      /* 빈 시간 찾기 (FIND) */
+      .askbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 0 10px;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        flex-wrap: wrap;
+      }
+      .segbtn {
+        display: flex;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        overflow: hidden;
+      }
+      .segbtn i {
+        font-style: normal;
+        font-size: var(--fs-xs);
+        padding: 3px 10px;
+        color: var(--text-muted);
+        border-right: 1px solid var(--border);
+      }
+      .segbtn i:last-child {
+        border-right: none;
+      }
+      .segbtn i.on {
+        background: var(--accent-dim);
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .slot {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+      }
+      .slot.sel {
+        background: var(--accent-dim);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .slot .ck {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        border: 1.5px solid var(--border);
+        flex: none;
+        position: relative;
+      }
+      .slot .ck.on {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .slot .ck.on::after {
+        content: '✓';
+        position: absolute;
+        inset: -3px 0 0 1px;
+        font-size: 11px;
+        color: #16171c;
+      }
+      .slot .when {
+        font-size: var(--fs-md);
+        flex: none;
+        width: 210px;
+      }
+      .slot .gap {
+        flex: 1;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .slot .len {
+        flex: none;
+        font-size: var(--fs-xs);
+        color: var(--success);
+        font-weight: 650;
+      }
+      .copybox {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: var(--r-sm);
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
+        font-size: var(--fs-sm);
+        line-height: 1.9;
+        color: var(--text-secondary);
+        white-space: pre-line;
+      }
+      .copybox .hd {
+        font-size: 10.5px;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
       /* 한 줄 입력 */
       .scrim {
         position: fixed;
@@ -775,6 +906,11 @@
           </button>
         </div>
       </header>
+      <div class="searchbar hidden" id="searchbar">
+        <span class="ico">/</span>
+        <input id="searchIn" type="text" maxlength="80" placeholder="제목으로 찾기 · 초성도 됩니다" />
+        <span class="cnt" id="searchCnt"></span>
+      </div>
       <div class="body" id="body"></div>
       <footer>
         <span><span class="led" id="led"></span> <span id="storeState">저장소</span></span>
@@ -810,6 +946,12 @@
         <div class="krow"><kbd>N</kbd><span>새 일정 (한 줄)</span></div>
         <div class="krow"><kbd>X</kbd><span>삭제</span></div>
         <div class="krow"><kbd>U</kbd><span>되돌리기</span></div>
+        <div class="kgrp">시간 찾기</div>
+        <div class="krow"><kbd>G</kbd><span>빈 시간 찾기</span></div>
+        <div class="krow"><kbd>Space</kbd><span>고르기</span></div>
+        <div class="krow"><kbd>Y</kbd><span>고른 시간 복사</span></div>
+        <div class="krow"><kbd>F</kbd><span>복사 형식 바꾸기</span></div>
+        <div class="krow"><kbd>/</kbd><span>검색 (지난 일정도)</span></div>
         <div class="kgrp">구독 탭</div>
         <div class="krow"><kbd>A</kbd><span>.ics 주소 추가</span></div>
         <div class="krow"><kbd>R</kbd><span>지금 받아오기</span></div>

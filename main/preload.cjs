@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('cal', {
   onChanged: (fn) => ipcRenderer.on('cal:changed', () => fn()),
   hide: () => ipcRenderer.send('win:hide'),
   minimize: () => ipcRenderer.send('win:minimize'),
+  search: (q) => ipcRenderer.invoke('cal:search', q),
+  freeSlots: (opts) => ipcRenderer.invoke('find:slots', opts),
+  formatSlots: (payload) => ipcRenderer.invoke('find:format', payload),
 });
 
 // 구독 — .ics 주소를 붙이면 일정이 알아서 들어온다

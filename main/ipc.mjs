@@ -4,6 +4,7 @@
 import { ipcMain } from 'electron';
 import { parseLine, describe } from './parse.mjs';
 import { syncCalendar, syncAll } from './sync.mjs';
+import { findFreeSlots, formatSlots } from './free.mjs';
 
 // 렌더러가 준 날짜 범위를 ISO로 바꾼다. 하루 경계는 로컬 자정이다 —
 // UTC로 자르면 한국에서 오전 9시 이전 일정이 전날로 밀린다.
@@ -63,6 +64,27 @@ export function registerIpc(ctx) {
     storeFile: store()?.file ?? null,
     reason: store()?.state?.reason ?? null,
   }));
+
+  ipcMain.handle('cal:search', (_e, query) => {
+    if (!store()?.ok) return [];
+    return store().searchEvents(query);
+  });
+
+  // ── 빈 시간 찾기 (FIND)
+  ipcMain.handle('find:slots', (_e, opts = {}) => {
+    if (!store()?.ok) return { slots: [] };
+    const days = opts.days ?? 14;
+    const from = new Date();
+    const to = new Date(from.getTime() + days * 86_400_000);
+    const events = store().listBetween(from.toISOString(), to.toISOString());
+    const slots = findFreeSlots(events, from.toISOString(), to.toISOString(), opts);
+    return { slots, from: from.toISOString(), to: to.toISOString() };
+  });
+
+  // 클립보드까지만 만든다. 보내는 것은 사람이 한다(FIND-04).
+  ipcMain.handle('find:format', (_e, { slots, style, polite }) =>
+    formatSlots(slots, { style, polite })
+  );
 
   // ── 구독 (SUB)
   ipcMain.handle('sub:list', () => {

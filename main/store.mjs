@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expand } from './recur.mjs';
+import { matches } from './search.mjs';
 
 // 앱이 자신보다 높은 user_version의 DB를 만나면 열지 않는다(STOR-03) — 구버전으로 되돌린
 // 사용자가 최신 스키마에 실수로 쓰지 않게 막는 신호다.
@@ -443,6 +444,22 @@ export function createStore(file) {
         }
         return { added, updated, removed, total: seen.size };
       });
+    },
+
+    // 제목으로 찾는다 (SRCH). 지난 일정도 함께 본다 — 실제 쓰임이 "그 회의 언제였지"다.
+    // 반복 일정은 펼치지 않고 원본 한 줄로 낸다. 회차마다 같은 제목이 수십 줄 서면 못 읽는다.
+    searchEvents(query, limit = 80) {
+      if (!String(query ?? '').trim()) return [];
+      return q(
+        `SELECT ${EVENT_COLS}
+           FROM event e JOIN calendar c ON c.id = e.calendar_id
+          WHERE e.deleted_at IS NULL AND c.enabled = 1`
+      )
+        .all()
+        .map(toDomain)
+        .filter((e) => matches(e.title, query))
+        .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
+        .slice(0, limit);
     },
 
     // 되돌리기(EV-06). 소프트 삭제라 지웠던 행을 되살리기만 하면 된다.

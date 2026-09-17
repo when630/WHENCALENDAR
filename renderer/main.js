@@ -23,6 +23,9 @@ const el = {
   keys: document.getElementById('keys'),
   toast: document.getElementById('toast'),
   toastMsg: document.getElementById('toastMsg'),
+  searchbar: document.getElementById('searchbar'),
+  searchIn: document.getElementById('searchIn'),
+  searchCnt: document.getElementById('searchCnt'),
 };
 
 const state = {
@@ -35,7 +38,27 @@ const state = {
   dlgMode: 'event', // 'event' | 'sub'
   subs: [],
   syncing: new Set(),
+  // 탭 위에 겹쳐 뜨는 화면. 탭을 바꾸는 게 아니라 잠시 덮는다.
+  view: null, // null | 'search' | 'find'
+  query: '',
+  results: [],
+  slots: [],
+  picked: new Set(),
+  findOpts: { minMinutes: 60, anyTime: false },
+  copyStyle: 0, // 0 목록 · 1 문장 · 2 표
 };
+
+const COPY_STYLES = [
+  { key: 'list', label: '목록' },
+  { key: 'sentence', label: '문장' },
+  { key: 'table', label: '표' },
+];
+const LENGTHS = [
+  { m: 30, label: '30분' },
+  { m: 60, label: '1시간' },
+  { m: 120, label: '2시간' },
+  { m: 240, label: '반나절' },
+];
 
 function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -396,6 +419,220 @@ function renderMonth(now) {
   el.body.replaceChildren(wrap);
 }
 
+// ── 검색 (SRCH)
+//
+// 강조 자리를 찾는 규칙은 main/search.mjs와 같아야 한다. 렌더러는 main 모듈을 import할 수
+// 없어(번들러가 없다) 초성 변환만 여기 한 번 더 적는다. 검색 자체는 main이 하고, 여기서는
+// 이미 찾은 결과의 어디를 칠할지만 정한다.
+const CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+function choOf(t) {
+  let out = '';
+  for (const ch of String(t ?? '')) {
+    const c = ch.codePointAt(0);
+    out += c >= 0xac00 && c <= 0xd7a3 ? CHO[Math.floor((c - 0xac00) / 588)] : ch;
+  }
+  return out;
+}
+function hitRange(text, query) {
+  const raw = String(text ?? '');
+  const q = String(query ?? '').toLowerCase().replace(/\s+/g, '');
+  if (!q) return null;
+  const map = [];
+  let packed = '';
+  for (let i = 0; i < raw.length; i++) {
+    if (/\s/.test(raw[i])) continue;
+    packed += raw[i].toLowerCase();
+    map.push(i);
+  }
+  let at = packed.indexOf(q);
+  if (at === -1 && [...q].every((c) => CHO.includes(c))) at = choOf(packed).indexOf(q);
+  if (at === -1) return null;
+  return [map[at], map[Math.min(at + q.length - 1, map.length - 1)] + 1];
+}
+
+function markHit(text, query) {
+  const frag = document.createDocumentFragment();
+  const r = hitRange(text, query);
+  if (!r) {
+    frag.append(document.createTextNode(text));
+    return frag;
+  }
+  const [a, b] = r;
+  frag.append(document.createTextNode(text.slice(0, a)));
+  const em = document.createElement('span');
+  em.className = 'hit';
+  em.textContent = text.slice(a, b);
+  frag.append(em, document.createTextNode(text.slice(b)));
+  return frag;
+}
+
+function renderSearch(now) {
+  el.searchCnt.textContent = state.query ? `${state.results.length}건` : '';
+  if (!state.query) {
+    el.body.replaceChildren(hintBox('제목 일부나 초성을 치세요', '예) 리뷰 · ㄷㅈㅇ'));
+    return;
+  }
+  if (!state.results.length) {
+    el.body.replaceChildren(hintBox('찾은 일정이 없습니다', state.query));
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  const upcoming = state.results.filter((e) => new Date(e.startsAt) >= now);
+  const past = state.results.filter((e) => new Date(e.startsAt) < now).reverse();
+
+  const section = (label, list) => {
+    if (!list.length) return;
+    frag.append(segHead(label));
+    list.forEach((ev, i) => {
+      const row = searchRow(ev, now);
+      if (state.results.indexOf(ev) === state.cursor) row.classList.add('sel');
+      frag.append(row);
+    });
+  };
+  section('앞으로', upcoming);
+  section('지난 일정', past);
+  el.body.replaceChildren(frag);
+}
+
+function searchRow(ev, now) {
+  const s = new Date(ev.startsAt);
+  const row = document.createElement('div');
+  const past = s < now;
+  row.className = 'ev' + (past ? ' past' : '');
+
+  const clock = document.createElement('span');
+  clock.className = 'clock';
+  clock.textContent = `${s.getMonth() + 1}/${s.getDate()} ${WEEK[s.getDay()]}`;
+
+  const bar = document.createElement('span');
+  bar.className = 'bar';
+  if (ev.color) bar.style.background = `var(--cal-${ev.color})`;
+
+  const main = document.createElement('span');
+  main.className = 'main';
+  const t = document.createElement('div');
+  t.className = 't';
+  t.append(markHit(ev.title, state.query));
+  main.append(t);
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = [ev.calendarName, ev.rrule ? '반복' : null, ev.allDay ? '종일' : hm(s)]
+    .filter(Boolean)
+    .join(' · ');
+  main.append(sub);
+
+  const rt = document.createElement('span');
+  rt.className = 'rt';
+  const days = Math.round((startOfDay(s) - startOfDay(now)) / 86400000);
+  rt.textContent = days === 0 ? '오늘' : days > 0 ? `${days}일 뒤` : `${-days}일 전`;
+
+  row.append(clock, bar, main, rt);
+  return row;
+}
+
+function hintBox(big, small) {
+  const d = document.createElement('div');
+  d.className = 'empty';
+  const b = document.createElement('div');
+  b.className = 'big';
+  b.textContent = big;
+  const h = document.createElement('div');
+  h.className = 'hint';
+  h.textContent = small;
+  d.append(b, h);
+  return d;
+}
+
+// ── 빈 시간 찾기 (FIND)
+function renderFind() {
+  el.dateLabel.textContent = '빈 시간 찾기';
+  const frag = document.createDocumentFragment();
+
+  const bar = document.createElement('div');
+  bar.className = 'askbar';
+  bar.append(document.createTextNode('얼마나'));
+  bar.append(seg(LENGTHS.map((l) => l.label), LENGTHS.findIndex((l) => l.m === state.findOpts.minMinutes)));
+  bar.append(document.createTextNode('시간대'));
+  bar.append(seg(['업무 시간', '아무 때나'], state.findOpts.anyTime ? 1 : 0));
+  const right = document.createElement('span');
+  right.style.marginLeft = 'auto';
+  right.textContent = `${state.slots.length}곳 · 고른 ${state.picked.size}곳`;
+  bar.append(right);
+  frag.append(bar);
+
+  if (!state.slots.length) {
+    frag.append(hintBox('조건에 맞는 빈 시간이 없습니다', '길이를 줄이거나 시간대를 넓혀 보세요'));
+  }
+
+  state.slots.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'slot' + (i === state.cursor ? ' sel' : '');
+
+    const ck = document.createElement('span');
+    ck.className = 'ck' + (state.picked.has(i) ? ' on' : '');
+
+    const when = document.createElement('span');
+    when.className = 'when';
+    const a = new Date(s.from);
+    const b = new Date(s.to);
+    when.textContent = `${a.getMonth() + 1}/${a.getDate()} (${WEEK[a.getDay()]}) ${hm(a)}–${hm(b)}`;
+
+    const gap = document.createElement('span');
+    gap.className = 'gap';
+    gap.textContent = [s.beforeTitle ? `${s.beforeTitle} 뒤` : '하루 시작', s.afterTitle ? `${s.afterTitle} 앞` : '하루 끝']
+      .join(' · ');
+
+    const len = document.createElement('span');
+    len.className = 'len';
+    len.textContent = s.minutes >= 60 ? `${Math.floor(s.minutes / 60)}시간${s.minutes % 60 ? ` ${s.minutes % 60}분` : ''}` : `${s.minutes}분`;
+
+    row.append(ck, when, gap, len);
+    frag.append(row);
+  });
+
+  if (state.picked.size) {
+    const box = document.createElement('div');
+    box.className = 'copybox';
+    const hd = document.createElement('div');
+    hd.className = 'hd';
+    hd.textContent = `클립보드에 들어갈 내용 · ${COPY_STYLES[state.copyStyle].label} (F로 바꿈) · 일정 제목은 넣지 않습니다`;
+    box.append(hd, document.createTextNode(state.copyPreview ?? ''));
+    frag.append(box);
+  }
+
+  el.body.replaceChildren(frag);
+}
+
+function seg(labels, active) {
+  const d = document.createElement('span');
+  d.className = 'segbtn';
+  labels.forEach((l, i) => {
+    const it = document.createElement('i');
+    if (i === active) it.className = 'on';
+    it.textContent = l;
+    d.append(it);
+  });
+  return d;
+}
+
+async function loadFind() {
+  const res = await window.cal.freeSlots({ ...state.findOpts, days: 14 });
+  state.slots = res.slots ?? [];
+  state.picked = new Set();
+  state.cursor = 0;
+  state.copyPreview = '';
+  renderFind();
+}
+
+async function refreshCopyPreview() {
+  const chosen = [...state.picked].sort((a, b) => a - b).map((i) => state.slots[i]);
+  state.copyPreview = chosen.length
+    ? await window.cal.formatSlots({ slots: chosen, style: COPY_STYLES[state.copyStyle].key, polite: true })
+    : '';
+  renderFind();
+}
+
 function renderSubs() {
   el.dateLabel.textContent = '';
   const frag = document.createDocumentFragment();
@@ -554,6 +791,9 @@ function emptyBox() {
 async function load() {
   const now = new Date();
 
+  if (state.view === 'find') return renderFind();
+  if (state.view === 'search') return renderSearch(now);
+
   state.subs = await window.subs.list();
   if (state.tab === 'subs') {
     const subs = state.subs.filter((c) => c.kind === 'subscription');
@@ -680,7 +920,111 @@ async function submitDialog() {
 }
 
 // ── 키
+function openSearch() {
+  state.view = 'search';
+  state.query = '';
+  state.results = [];
+  state.cursor = 0;
+  el.searchbar.classList.remove('hidden');
+  el.searchIn.value = '';
+  el.searchIn.focus();
+  rerender();
+}
+
+function closeView() {
+  state.view = null;
+  state.query = '';
+  el.searchbar.classList.add('hidden');
+  el.searchIn.blur();
+  state.cursor = 0;
+  load();
+}
+
+let searchTimer = null;
+el.searchIn.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    state.query = el.searchIn.value.trim();
+    state.results = state.query ? await window.cal.search(state.query) : [];
+    state.cursor = 0;
+    renderSearch(new Date());
+  }, 120);
+});
+
+el.searchIn.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeView();
+  }
+});
+
 document.addEventListener('keydown', async (e) => {
+  // 검색은 입력창이 포커스를 가지므로 여기서는 Esc만 본다
+  if (state.view === 'search' && document.activeElement === el.searchIn) return;
+
+  // 빈 시간 찾기 화면 (FIND)
+  if (state.view === 'find' && state.overlay === null) {
+    const k0 = e.key;
+    if (k0 === 'Escape' || k0 === 'g' || k0 === 'G' || k0 === 'ㅎ') {
+      e.preventDefault();
+      closeView();
+      return;
+    }
+    if (k0 === 'j' || k0 === 'ArrowDown' || k0 === 'k' || k0 === 'ArrowUp') {
+      e.preventDefault();
+      const d = k0 === 'j' || k0 === 'ArrowDown' ? 1 : -1;
+      state.cursor = Math.max(0, Math.min(state.cursor + d, Math.max(0, state.slots.length - 1)));
+      renderFind();
+      return;
+    }
+    if (k0 === ' ') {
+      e.preventDefault();
+      if (state.picked.has(state.cursor)) state.picked.delete(state.cursor);
+      else state.picked.add(state.cursor);
+      await refreshCopyPreview();
+      return;
+    }
+    if (k0 === 'f' || k0 === 'F' || k0 === 'ㄹ') {
+      state.copyStyle = (state.copyStyle + 1) % COPY_STYLES.length;
+      await refreshCopyPreview();
+      return;
+    }
+    if (k0 === 'y' || k0 === 'Y' || k0 === 'ㅛ') {
+      if (!state.picked.size) {
+        toast('Space로 먼저 고르세요');
+        return;
+      }
+      await navigator.clipboard.writeText(state.copyPreview ?? '');
+      toast(`복사했습니다 · ${state.picked.size}곳 · 일정 제목은 빠졌습니다`);
+      return;
+    }
+    if (k0 === 'Enter') {
+      e.preventDefault();
+      const slot = state.slots[state.cursor];
+      if (!slot) return;
+      const a = new Date(slot.from);
+      const when = `${a.getMonth() + 1}/${a.getDate()} ${a.getHours()}시${a.getMinutes() ? ` ${a.getMinutes()}분` : ''}`;
+      closeView();
+      openDialog('event');
+      el.dlgIn.value = `${when} `;
+      el.dlgIn.setSelectionRange(el.dlgIn.value.length, el.dlgIn.value.length);
+      previewParse();
+      return;
+    }
+    // 길이·시간대 바꾸기
+    if (k0 === '1' || k0 === '2' || k0 === '3' || k0 === '4') {
+      state.findOpts.minMinutes = LENGTHS[Number(k0) - 1].m;
+      await loadFind();
+      return;
+    }
+    if (k0 === 'a' || k0 === 'A' || k0 === 'ㅁ') {
+      state.findOpts.anyTime = !state.findOpts.anyTime;
+      await loadFind();
+      return;
+    }
+    return;
+  }
+
   // 입력 중에는 글자가 명령이 되면 안 된다
   if (state.overlay === 'dlg') {
     if (e.key === 'Escape') {
@@ -759,6 +1103,17 @@ document.addEventListener('keydown', async (e) => {
   if (k === 'n' || k === 'N' || k === 'ㅜ') {
     e.preventDefault();
     openDialog();
+    return;
+  }
+  if (k === '/') {
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+  if (k === 'g' || k === 'G' || k === 'ㅎ') {
+    e.preventDefault();
+    state.view = 'find';
+    await loadFind();
     return;
   }
   if (k === 'j' || k === 'ArrowDown') {
@@ -873,6 +1228,8 @@ document.addEventListener('keydown', async (e) => {
 
 function rerender() {
   const now = new Date();
+  if (state.view === 'search') return renderSearch(now);
+  if (state.view === 'find') return renderFind();
   if (state.tab === 'subs') renderSubs();
   else if (state.tab === 'month') renderMonth(now);
   else if (state.tab === 'today') renderToday(now);
@@ -881,7 +1238,19 @@ function rerender() {
 
 const selectedSub = () => state.subs.filter((c) => c.kind === 'subscription')[state.cursor] ?? null;
 
-el.body.addEventListener('click', (e) => {
+el.body.addEventListener('click', async (e) => {
+  // 빈 시간 한 칸을 눌러 고른다
+  const slot = e.target.closest('.slot');
+  if (slot && state.view === 'find') {
+    const i = [...el.body.querySelectorAll('.slot')].indexOf(slot);
+    if (i >= 0) {
+      state.cursor = i;
+      if (state.picked.has(i)) state.picked.delete(i);
+      else state.picked.add(i);
+      await refreshCopyPreview();
+    }
+    return;
+  }
   const cell = e.target.closest('.mon .c');
   if (cell?.dataset.day) {
     state.anchor = new Date(cell.dataset.day);
