@@ -6,7 +6,7 @@
 
 ---
 
-> **상태: 설계 단계.** 아직 쓸 수 있는 빌드가 없습니다. 오버레이 프로토타입과 화면 목업까지 나왔고 구현은 이제 시작합니다.
+> **상태: 만드는 중.** 오버레이와 본체 창(오늘·주 탭, 한 줄 입력)이 돌아갑니다. `.ics` 구독과 월 격자가 아직 없어 릴리스 전입니다.
 
 코드에 파묻혀 있다가 회의 시간을 넘긴 적이 있다면 그게 이 앱이 푸는 문제입니다.
 
@@ -45,11 +45,24 @@
 
 **나중에** — 반복 일정 예외 편집, 종일·다중일 일정 레인 쌓기, 자연어 한 줄 입력, 타임존
 
-## 지금 볼 수 있는 것
+## 지금 써 보려면
 
 ```bash
-cd poc && npm install && npm start    # 실제 오버레이 (Ctrl+Alt+H 로 키 안내, Ctrl+Alt+Q 종료)
+npm install
+npm run seed     # 검증용 일정 3건 (지금으로부터 15분·75분·180분 뒤)
+npm start
 ```
+
+| 키 | |
+|---|---|
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> | 어디서든 창 열기·닫기 |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd> | 오버레이 잠시 끄기 (발표·녹화용) |
+| <kbd>N</kbd> | 새 일정 — `담주 화 3시 김부장 미팅 1시간`처럼 한 줄로 |
+| <kbd>j</kbd> <kbd>k</kbd> · <kbd>←</kbd> <kbd>→</kbd> · <kbd>t</kbd> | 이동 · 날짜 넘기기 · 오늘로 |
+| <kbd>X</kbd> <kbd>U</kbd> | 삭제 · 되돌리기 |
+| <kbd>?</kbd> | 전체 키맵 |
+
+종료는 트레이 아이콘 우클릭 → 종료.
 
 브라우저로 여는 시안들:
 
@@ -58,6 +71,8 @@ cd poc && npm install && npm start    # 실제 오버레이 (Ctrl+Alt+H 로 키 
 | `design/mockups/whencalendar-mockups.html` | 본체 화면 12종 |
 | `poc/flow.html` | 하루를 흘려보내며 보는 상태 전이 |
 | `poc/ring.html` · `poc/island.html` · `poc/compare.html` | 오버레이 변형 탐색 기록 |
+
+`poc/verify-fullscreen.ps1`은 오버레이가 전체화면 앱 위에 남는지 확인한다 — 화면을 캡처하므로 눈으로 본다.
 
 ## 만들어진 방식
 

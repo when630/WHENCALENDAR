@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createSettings } from './settings.mjs';
 import { createOverlay } from './overlay.mjs';
+import { createMainWindow } from './window.mjs';
+import { registerIpc } from './ipc.mjs';
 import { stateAt, msUntilNextChange, DEFAULTS } from './clock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -97,7 +99,7 @@ export function bootstrap() {
     return;
   }
 
-  const ctx = { store: null, settings: null, overlay: null, tray: null, timer: null };
+  const ctx = { store: null, settings: null, overlay: null, mainWindow: null, tray: null, timer: null };
 
   function loadEvents() {
     const [from, to] = dayRange();
@@ -120,6 +122,8 @@ export function bootstrap() {
     const tray = new Tray(trayIcon());
     tray.setToolTip('WHENCALENDAR');
     const menu = Menu.buildFromTemplate([
+      { label: '일정 보기', click: () => ctx.mainWindow.show() },
+      { type: 'separator' },
       {
         label: '오버레이 잠시 끄기',
         type: 'checkbox',
@@ -130,6 +134,7 @@ export function bootstrap() {
       { label: '종료', click: () => app.quit() },
     ]);
     tray.setContextMenu(menu);
+    tray.on('click', () => ctx.mainWindow.toggle());
     return tray;
   }
 
@@ -167,12 +172,24 @@ export function bootstrap() {
 
     ctx.overlay = createOverlay();
     ctx.overlay.start();
+    ctx.mainWindow = createMainWindow(ctx.settings);
+
+    // 일정이 바뀌면 열린 창을 새로 그리고, 오버레이도 즉시 다시 센다 —
+    // 방금 넣은 일정이 아일랜드에 안 보이면 넣은 것 같지가 않다.
+    ctx.onChanged = () => {
+      ctx.mainWindow.notifyChanged();
+      tick();
+    };
+    registerIpc(ctx);
+
     ctx.tray = buildTray();
 
     // 자는 동안 틱이 멈춰 있었다 — 깨어난 순간 과거 상태를 보여서는 안 된다 (OVL-14)
     powerMonitor.on('resume', tick);
     powerMonitor.on('unlock-screen', tick);
 
+    // whenwork(Ctrl+Alt+Space)·whennote(Ctrl+Alt+M/N)와 겹치지 않는 키 (오픈이슈 #2)
+    globalShortcut.register('Ctrl+Alt+C', () => ctx.mainWindow.toggle());
     globalShortcut.register('Ctrl+Alt+O', () => ctx.overlay.setSuspended(!ctx.overlay.suspended));
 
     tick();
@@ -182,6 +199,7 @@ export function bootstrap() {
     clearTimeout(ctx.timer);
     globalShortcut.unregisterAll();
     ctx.overlay?.destroy();
+    ctx.mainWindow?.destroy();
     ctx.settings?.flush();
     ctx.store?.close();
   });

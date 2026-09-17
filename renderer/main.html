@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <link href="./tokens.css" rel="stylesheet" />
+    <title>WHENCALENDAR</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        background: var(--bg-app);
+        overflow: hidden;
+        font-family: var(--font-sans);
+        font-size: var(--fs-md);
+        line-height: 1.5;
+        color: var(--text-primary);
+        -webkit-user-select: none;
+      }
+      .app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-4);
+        padding: 9px var(--sp-4);
+        border-bottom: 1px solid var(--border);
+        flex: none;
+      }
+      header .title {
+        font-size: var(--fs-xs);
+        font-weight: 750;
+        letter-spacing: 0.8px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      header .title::before {
+        content: '';
+        width: 9px;
+        height: 9px;
+        border-radius: 99px;
+        background: var(--accent);
+        box-shadow: 0 0 9px var(--accent-dim);
+      }
+      header .date {
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        margin-left: auto;
+      }
+      .tabs {
+        display: flex;
+        gap: 2px;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 11px;
+        border-radius: var(--r-sm);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .tab .n {
+        font-size: 10.5px;
+        padding: 0 5px;
+        border-radius: 99px;
+        background: var(--bg-inset);
+        color: var(--text-muted);
+      }
+      .tab.on {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+      }
+      .tab.on .n {
+        background: var(--accent-dim);
+        color: var(--accent);
+      }
+
+      .body {
+        flex: 1;
+        overflow-y: auto;
+        padding: var(--sp-2) var(--sp-4) var(--sp-4);
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        padding: 7px var(--sp-4);
+        border-top: 1px solid var(--border);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        flex: none;
+      }
+      .led {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: var(--success);
+        box-shadow: 0 0 7px rgba(158, 206, 106, 0.5);
+        display: inline-block;
+      }
+      .led.err {
+        background: var(--danger);
+        box-shadow: 0 0 7px rgba(247, 118, 142, 0.5);
+      }
+      .foot-hints {
+        margin-left: auto;
+        display: flex;
+        gap: 11px;
+      }
+
+      /* 시간축 */
+      .seghead {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 0 5px;
+      }
+      .seghead b {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        font-weight: 640;
+        letter-spacing: 0.3px;
+      }
+      .seghead i {
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+
+      .ev {
+        display: flex;
+        gap: var(--sp-3);
+        align-items: flex-start;
+        padding: 7px 9px;
+        border-radius: var(--r-sm);
+      }
+      .ev:hover {
+        background: var(--bg-raised);
+      }
+      .ev.sel {
+        background: var(--accent-dim);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .ev .clock {
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-secondary);
+        width: 96px;
+        flex: none;
+        padding-top: 1px;
+        letter-spacing: -0.2px;
+      }
+      .ev .bar {
+        width: 3px;
+        border-radius: 99px;
+        background: var(--text-muted);
+        flex: none;
+        align-self: stretch;
+        opacity: 0.5;
+      }
+      .ev .main {
+        flex: 1;
+        min-width: 0;
+      }
+      .ev .t {
+        font-size: var(--fs-md);
+      }
+      .ev .sub {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      .ev .rt {
+        flex: none;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+        padding-top: 2px;
+      }
+      .ev.past .t,
+      .ev.past .clock {
+        color: var(--text-muted);
+      }
+      .ev.past .bar {
+        opacity: 0.22;
+      }
+      .ev.live {
+        background: var(--live-dim);
+        box-shadow: inset 2px 0 0 var(--live);
+      }
+      .ev.live .bar {
+        background: var(--live);
+        opacity: 1;
+      }
+      .ev.live .rt {
+        color: var(--live);
+        font-weight: 650;
+      }
+      .ev.next .bar {
+        background: var(--accent);
+        opacity: 1;
+      }
+      .ev.next .rt {
+        color: var(--accent);
+        font-weight: 650;
+      }
+
+      .nowline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 3px 0 3px 9px;
+      }
+      .nowline .bead {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: var(--danger);
+        flex: none;
+        box-shadow: 0 0 8px rgba(247, 118, 142, 0.6);
+      }
+      .nowline .ln {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, var(--danger), transparent);
+      }
+      .nowline .lbl {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--danger);
+        flex: none;
+      }
+
+      .wkday {
+        padding: 12px 0 3px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .wkday b {
+        font-size: var(--fs-sm);
+        font-weight: 640;
+      }
+      .wkday span {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .wkday i {
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+      .wkday.today b {
+        color: var(--accent);
+      }
+
+      .empty {
+        height: 100%;
+        min-height: 260px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-3);
+        color: var(--text-muted);
+      }
+      .empty .big {
+        font-size: 15px;
+        color: var(--text-secondary);
+      }
+      .empty .hint {
+        font-size: var(--fs-xs);
+        line-height: 2;
+        text-align: center;
+      }
+
+      /* 한 줄 입력 */
+      .scrim {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 9, 12, 0.62);
+      }
+      .dlg {
+        position: fixed;
+        left: 50%;
+        top: 74px;
+        transform: translateX(-50%);
+        width: min(620px, 88%);
+        background: var(--bg-raised);
+        border: 1px solid var(--border-focus);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-pop);
+        padding: 13px 15px 14px;
+      }
+      .dlg label {
+        display: block;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        margin-bottom: 7px;
+      }
+      .dlg input {
+        width: 100%;
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 9px 11px;
+        font-size: var(--fs-md);
+        color: var(--text-primary);
+        font-family: inherit;
+        outline: none;
+      }
+      .dlg input:focus {
+        border-color: var(--border-focus);
+      }
+      .dlg .parse {
+        margin-top: 10px;
+        padding: 9px 11px;
+        border-radius: var(--r-sm);
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
+        font-size: var(--fs-xs);
+        color: var(--text-secondary);
+        line-height: 1.85;
+        min-height: 36px;
+      }
+      .dlg .parse b {
+        color: var(--accent);
+      }
+      .dlg .parse .q {
+        color: var(--warning);
+      }
+      .dlg .parse .no {
+        color: var(--text-muted);
+      }
+      .dlg .foot {
+        display: flex;
+        gap: 11px;
+        margin-top: 10px;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+
+      /* 키맵 */
+      .keys {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(620px, 90%);
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-pop);
+        overflow: hidden;
+      }
+      .keys .kh {
+        display: flex;
+        align-items: baseline;
+        padding: 11px 15px;
+        border-bottom: 1px solid var(--border);
+        font-size: var(--fs-sm);
+        font-weight: 650;
+      }
+      .keys .kh span {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        font-weight: 400;
+        margin-left: auto;
+      }
+      .keys .kbody {
+        padding: 11px 15px 15px;
+        columns: 2;
+        column-gap: 26px;
+      }
+      .keys .kgrp {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 640;
+        margin: 9px 0 5px;
+        break-inside: avoid;
+      }
+      .keys .krow {
+        display: flex;
+        align-items: baseline;
+        gap: 9px;
+        padding: 2.5px 0;
+        font-size: var(--fs-xs);
+        break-inside: avoid;
+      }
+      .keys .krow span {
+        color: var(--text-secondary);
+      }
+      .keys .krow kbd {
+        flex: none;
+        min-width: 26px;
+        text-align: center;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 46px;
+        transform: translateX(-50%);
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 99px;
+        padding: 7px 16px;
+        font-size: var(--fs-xs);
+        box-shadow: var(--shadow-pop);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        pointer-events: none;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+      .toast .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: var(--success);
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <span class="title">WHENCALENDAR</span>
+        <nav class="tabs" id="tabs"></nav>
+        <span class="date" id="dateLabel"></span>
+      </header>
+      <div class="body" id="body"></div>
+      <footer>
+        <span><span class="led" id="led"></span> <span id="storeState">저장소</span></span>
+        <span class="foot-hints">
+          <span><kbd>N</kbd> 새 일정</span>
+          <span><kbd>X</kbd> 삭제</span>
+          <span><kbd>?</kbd> 키</span>
+        </span>
+      </footer>
+    </div>
+
+    <div class="scrim hidden" id="scrim"></div>
+
+    <div class="dlg hidden" id="dlg">
+      <label>새 일정 — 한 줄로 적으세요</label>
+      <input id="dlgIn" type="text" maxlength="200" placeholder="담주 화 3시 김부장 미팅 1시간" />
+      <div class="parse" id="dlgParse"><span class="no">날짜·시각·제목을 알아서 읽습니다</span></div>
+      <div class="foot">
+        <span><kbd>Enter</kbd> 등록</span><span><kbd>Esc</kbd> 취소</span>
+      </div>
+    </div>
+
+    <div class="keys hidden" id="keys">
+      <div class="kh">키<span>? · Esc 로 닫기</span></div>
+      <div class="kbody">
+        <div class="kgrp">이동</div>
+        <div class="krow"><kbd>Tab</kbd><span>탭 전환</span></div>
+        <div class="krow"><kbd>j</kbd><kbd>k</kbd><span>위아래</span></div>
+        <div class="krow"><kbd>←</kbd><kbd>→</kbd><span>날짜·주 이동</span></div>
+        <div class="krow"><kbd>t</kbd><span>오늘로</span></div>
+        <div class="kgrp">일정</div>
+        <div class="krow"><kbd>N</kbd><span>새 일정 (한 줄)</span></div>
+        <div class="krow"><kbd>X</kbd><span>삭제</span></div>
+        <div class="krow"><kbd>U</kbd><span>되돌리기</span></div>
+        <div class="kgrp">창</div>
+        <div class="krow"><kbd>Esc</kbd><span>닫기 · 트레이로</span></div>
+        <div class="krow"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>C</kbd><span>어디서든 열기·닫기</span></div>
+        <div class="krow"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>O</kbd><span>오버레이 잠시 끄기</span></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"><span class="dot"></span><span id="toastMsg"></span></div>
+
+    <script src="./main.js"></script>
+  </body>
+</html>

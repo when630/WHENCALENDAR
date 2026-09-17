@@ -331,6 +331,32 @@ export function createStore(file) {
       return Number(info.changes ?? 0);
     },
 
+    // 되돌리기(EV-06). 소프트 삭제라 지웠던 행을 되살리기만 하면 된다.
+    restoreEvent(id) {
+      q('UPDATE event SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now(), id);
+    },
+
+    getEvent(id) {
+      const r = q(
+        `SELECT e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.location, e.note,
+                c.color AS color, c.name AS calendar_name, c.kind AS calendar_kind
+           FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?`
+      ).get(id);
+      if (!r) return null;
+      return {
+        id: r.id,
+        title: r.title,
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        allDay: !!r.all_day,
+        location: r.location,
+        note: r.note,
+        color: r.color,
+        calendarName: r.calendar_name,
+        calendarKind: r.calendar_kind,
+      };
+    },
+
     countEvents() {
       return q('SELECT count(*) AS n FROM event WHERE deleted_at IS NULL').get().n;
     },
