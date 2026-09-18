@@ -101,6 +101,11 @@ npm run smoke    # 창을 띄우지 않고 저장소·상태 계산·트레이 �
 npm run build    # Windows 설치 파일 → dist/
 ```
 
+빌드 전에 **실행 중인 앱을 먼저 끕니다.** 켜 둔 채로 돌리면 electron-builder가
+`EPERM: unlink dist\win-unpacked\WHENCALENDAR.exe`로 넘어지는데, 그때 이미
+`win-unpacked`가 반쯤 지워져 있어 다음 실행이 ICU 오류로 죽습니다 — 빌드가 깨진 것처럼
+보이지만 원인은 잠긴 파일 하나입니다.
+
 브라우저로 여는 시안들:
 
 | 파일 | |
