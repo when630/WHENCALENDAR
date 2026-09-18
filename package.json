@@ -1,6 +1,6 @@
 {
   "name": "whencalendar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "몰입해도 시간은 놓치지 않는다 — 상단 아일랜드 오버레이로 다음 일정까지 남은 시간을 알려주는 트레이 상주 캘린더",
