@@ -45,6 +45,32 @@ export function registerIpc(ctx) {
     return { ok: true, id, parsed };
   });
 
+  ipcMain.handle('cal:get', (_e, id) => (store()?.ok ? store().getEvent(id) : null));
+
+  ipcMain.handle('cal:update', (_e, { id, patch }) => {
+    if (!store()?.ok) return { ok: false, reason: 'store' };
+    const ok = store().updateEvent(id, patch);
+    if (ok) ctx.onChanged?.();
+    return { ok, reason: ok ? null : 'readonly' };
+  });
+
+  // 날짜·시각만 한 줄로 다시 받는다. 제목은 그대로 두고 시간만 옮길 때 쓴다(EV-05).
+  ipcMain.handle('cal:reschedule', (_e, { id, line }) => {
+    if (!store()?.ok) return { ok: false, reason: 'store' };
+    const cur = store().getEvent(id);
+    if (!cur) return { ok: false, reason: 'missing' };
+    // 제목을 붙여 같은 파서를 태운다 — 규칙이 두 벌이 되지 않게
+    const parsed = parseLine(`${line} ${cur.title}`, new Date());
+    if (!parsed.startsAt) return { ok: false, reason: 'parse' };
+    const ok = store().updateEvent(id, {
+      startsAt: parsed.startsAt,
+      endsAt: parsed.endsAt,
+      allDay: parsed.allDay ? 1 : 0,
+    });
+    if (ok) ctx.onChanged?.();
+    return { ok, reason: ok ? null : 'readonly', parsed, summary: describe(parsed) };
+  });
+
   ipcMain.handle('cal:delete', (_e, id) => {
     if (!store()?.ok) return { ok: false };
     store().softDeleteEvent(id);

@@ -462,6 +462,42 @@ export function createStore(file) {
         .slice(0, limit);
     },
 
+    /**
+     * 일정을 고친다 (EV-05).
+     *
+     * 구독으로 들어온 일정은 고칠 수 없다 — 다음 갱신에 원격 값으로 덮여 되돌아가므로,
+     * 고쳐지는 척하는 것이 더 나쁘다. 호출한 쪽이 알 수 있게 false를 돌려준다.
+     */
+    updateEvent(id, patch) {
+      const row = q('SELECT e.id, c.kind FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?').get(id);
+      if (!row) return false;
+      if (row.kind === 'subscription') return false;
+
+      const cols = {
+        title: 'title',
+        startsAt: 'starts_at',
+        endsAt: 'ends_at',
+        allDay: 'all_day',
+        location: 'location',
+        note: 'note',
+        remindMin: 'remind_min',
+        rrule: 'rrule',
+        calendarId: 'calendar_id',
+      };
+      const sets = [];
+      const vals = [];
+      for (const [k, col] of Object.entries(cols)) {
+        if (!(k in patch)) continue;
+        sets.push(`${col} = ?`);
+        vals.push(typeof patch[k] === 'boolean' ? (patch[k] ? 1 : 0) : patch[k]);
+      }
+      if (!sets.length) return true;
+      sets.push('updated_at = ?');
+      vals.push(now());
+      q(`UPDATE event SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+      return true;
+    },
+
     // 되돌리기(EV-06). 소프트 삭제라 지웠던 행을 되살리기만 하면 된다.
     restoreEvent(id) {
       q('UPDATE event SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now(), id);

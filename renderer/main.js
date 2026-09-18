@@ -46,6 +46,7 @@ const state = {
   picked: new Set(),
   findOpts: { minMinutes: 60, anyTime: false },
   copyStyle: 0, // 0 목록 · 1 문장 · 2 표
+  detail: false, // 오른쪽 상세 패널 (EV-04)
 };
 
 const COPY_STYLES = [
@@ -194,7 +195,7 @@ function renderToday(now) {
   });
 
   if (!nowLineDone) frag.append(nowLine(now));
-  el.body.replaceChildren(frag);
+  el.body.replaceChildren(withDetail(frag));
   el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -235,7 +236,7 @@ function renderWeek(now) {
     frag.append(row);
   });
 
-  el.body.replaceChildren(frag);
+  el.body.replaceChildren(withDetail(frag));
   el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -633,6 +634,99 @@ async function refreshCopyPreview() {
   renderFind();
 }
 
+// ── 상세 (EV-04·EV-05)
+//
+// 목록을 밀어내지 않고 오른쪽에 붙인다. 목록이 사라지면 "다음이 뭐였지"를 다시 찾아야 한다.
+function withDetail(listNode) {
+  if (!state.detail) return listNode;
+  const ev = currentEvent();
+  if (!ev) return listNode;
+
+  const split = document.createElement('div');
+  split.className = 'split';
+  const left = document.createElement('div');
+  left.className = 'list';
+  left.append(listNode);
+  split.append(left, detailPane(ev));
+  return split;
+}
+
+function currentEvent() {
+  return state.events[state.cursor] ?? null;
+}
+
+function detailPane(ev) {
+  const d = document.createElement('div');
+  d.className = 'detail';
+
+  const t = document.createElement('div');
+  t.className = 'dt';
+  t.textContent = ev.title;
+  d.append(t, spacer(11));
+
+  const s = new Date(ev.startsAt);
+  const e = ev.endsAt ? new Date(ev.endsAt) : null;
+  const now = new Date();
+
+  const line = (label, value) => {
+    const row = document.createElement('div');
+    row.className = 'dl';
+    const b = document.createElement('b');
+    b.textContent = label;
+    const v = document.createElement('span');
+    if (value instanceof Node) v.append(value);
+    else v.textContent = value;
+    row.append(b, v);
+    d.append(row);
+  };
+
+  line('언제', ev.allDay
+    ? `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]}) · 종일`
+    : `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]})\n${hm(s)}${e ? ` – ${hm(e)}` : ''}`);
+
+  if (!ev.allDay) {
+    const left = s - now;
+    const v = document.createElement('span');
+    v.style.color = left > 0 ? 'var(--accent)' : 'var(--text-muted)';
+    v.style.fontWeight = '650';
+    v.textContent = left > 0 ? relTime(left) : e && now < e ? `${relTime(e - now)} 뒤 종료` : '끝남';
+    line('남음', v);
+  }
+
+  const chip = document.createElement('span');
+  chip.textContent = ev.calendarName ?? '이 PC';
+  line('달력', chip);
+  line('출처', ev.calendarKind === 'subscription' ? '구독 (읽기 전용)' : '직접 등록');
+  if (ev.rrule) line('반복', ev.rrule.replace(/^RRULE:/, ''));
+  if (ev.location) line('장소', ev.location);
+
+  if (ev.calendarKind === 'subscription') {
+    const ro = document.createElement('div');
+    ro.className = 'ro';
+    ro.textContent = '구독으로 들어온 일정입니다. 여기서 고치면 다음 갱신에 되돌아가므로 고칠 수 없게 두었습니다. 원래 캘린더에서 바꾸세요.';
+    d.append(ro);
+    return d;
+  }
+
+  const acts = document.createElement('div');
+  acts.className = 'acts';
+  for (const [k, label] of [['E', '제목'], ['D', '날짜·시각'], ['X', '삭제'], ['U', '되돌리기']]) {
+    const row = document.createElement('div');
+    const kbd = document.createElement('kbd');
+    kbd.textContent = k;
+    row.append(kbd, document.createTextNode(label));
+    acts.append(row);
+  }
+  d.append(acts);
+  return d;
+}
+
+function spacer(px) {
+  const d = document.createElement('div');
+  d.style.height = `${px}px`;
+  return d;
+}
+
 function renderSubs() {
   el.dateLabel.textContent = '';
   const frag = document.createDocumentFragment();
@@ -839,23 +933,29 @@ async function refreshInfo() {
 // ── 한 줄 입력
 let parseTimer = null;
 
-function openDialog(mode = 'event') {
+const DLG = {
+  event: { label: '새 일정 — 한 줄로 적으세요', ph: '담주 화 3시 김부장 미팅 1시간', hint: '날짜·시각·제목을 알아서 읽습니다' },
+  sub: {
+    label: '구독 추가 — .ics 주소를 붙여 넣으세요',
+    ph: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+    hint: '구글 캘린더 설정 → 캘린더 통합 → 비공개 주소(iCal 형식)',
+  },
+  title: { label: '제목 고치기', ph: '', hint: '엔터로 저장합니다' },
+  when: { label: '날짜·시각 옮기기 — 한 줄로', ph: '담주 화 3시 1시간', hint: '제목은 그대로 두고 시간만 바꿉니다' },
+};
+
+function openDialog(mode = 'event', preset = '') {
   state.overlay = 'dlg';
   state.dlgMode = mode;
   el.scrim.classList.remove('hidden');
   el.dlg.classList.remove('hidden');
-  el.dlgIn.value = '';
-  const isSub = mode === 'sub';
-  el.dlg.querySelector('label').textContent = isSub
-    ? '구독 추가 — .ics 주소를 붙여 넣으세요'
-    : '새 일정 — 한 줄로 적으세요';
-  el.dlgIn.placeholder = isSub
-    ? 'https://calendar.google.com/calendar/ical/…/basic.ics'
-    : '담주 화 3시 김부장 미팅 1시간';
-  el.dlgParse.innerHTML = isSub
-    ? '<span class="no">구글 캘린더 설정 → 캘린더 통합 → 비공개 주소(iCal 형식)</span>'
-    : '<span class="no">날짜·시각·제목을 알아서 읽습니다</span>';
+  const cfg = DLG[mode] ?? DLG.event;
+  el.dlg.querySelector('label').textContent = cfg.label;
+  el.dlgIn.placeholder = cfg.ph;
+  el.dlgParse.innerHTML = `<span class="no">${cfg.hint}</span>`;
+  el.dlgIn.value = preset;
   el.dlgIn.focus();
+  el.dlgIn.setSelectionRange(preset.length, preset.length);
 }
 
 function closeOverlay() {
@@ -867,7 +967,7 @@ function closeOverlay() {
 }
 
 async function previewParse() {
-  if (state.dlgMode === 'sub') return; // 주소는 미리 볼 것이 없다
+  if (state.dlgMode === 'sub' || state.dlgMode === 'title') return; // 주소와 제목은 미리 볼 것이 없다
   const line = el.dlgIn.value.trim();
   if (!line) {
     el.dlgParse.innerHTML = '<span class="no">날짜·시각·제목을 알아서 읽습니다</span>';
@@ -890,6 +990,35 @@ function escapeHtml(s) {
 async function submitDialog() {
   const line = el.dlgIn.value.trim();
   if (!line) return;
+
+  if (state.dlgMode === 'title') {
+    const ev = currentEvent();
+    if (!ev) return closeOverlay();
+    const r = await window.cal.update(ev.id, { title: line });
+    closeOverlay();
+    if (!r.ok) return toast(r.reason === 'readonly' ? '구독 일정은 고칠 수 없습니다' : '고치지 못했습니다');
+    await load();
+    toast('제목을 바꿨습니다');
+    return;
+  }
+
+  if (state.dlgMode === 'when') {
+    const ev = currentEvent();
+    if (!ev) return closeOverlay();
+    const r = await window.cal.reschedule(ev.id, line);
+    if (!r.ok) {
+      if (r.reason === 'parse') {
+        el.dlgParse.innerHTML = '<span class="q">＊ 날짜·시각을 읽지 못했습니다</span>';
+        return;
+      }
+      closeOverlay();
+      return toast(r.reason === 'readonly' ? '구독 일정은 옮길 수 없습니다' : '옮기지 못했습니다');
+    }
+    closeOverlay();
+    await load();
+    toast(`옮겼습니다 — ${r.summary}`);
+    return;
+  }
 
   if (state.dlgMode === 'sub') {
     el.dlgParse.innerHTML = '<span class="no">받는 중…</span>';
@@ -1051,6 +1180,11 @@ document.addEventListener('keydown', async (e) => {
   const k = e.key;
 
   if (k === 'Escape') {
+    if (state.detail) {
+      state.detail = false;
+      rerender();
+      return;
+    }
     window.cal.hide();
     return;
   }
@@ -1200,6 +1334,30 @@ document.addEventListener('keydown', async (e) => {
     return;
   }
 
+  if (k === 'Enter') {
+    e.preventDefault();
+    if (state.events.length) {
+      state.detail = !state.detail;
+      rerender();
+    }
+    return;
+  }
+  if (k === 'e' || k === 'E' || k === 'ㄷ') {
+    const ev = currentEvent();
+    if (!ev) return;
+    if (ev.calendarKind === 'subscription') return toast('구독 일정은 고칠 수 없습니다');
+    e.preventDefault();
+    openDialog('title', ev.title);
+    return;
+  }
+  if (k === 'd' || k === 'D' || k === 'ㅇ') {
+    const ev = currentEvent();
+    if (!ev) return;
+    if (ev.calendarKind === 'subscription') return toast('구독 일정은 옮길 수 없습니다');
+    e.preventDefault();
+    openDialog('when');
+    return;
+  }
   if (k === 'x' || k === 'X' || k === 'ㅌ') {
     const ev = state.events[state.cursor];
     if (!ev) return;

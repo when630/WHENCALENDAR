@@ -602,6 +602,67 @@
         border-color: var(--text-primary);
       }
 
+      /* 상세 패널 (EV-04) — 목록을 밀어내지 않고 오른쪽에 붙는다 */
+      .split {
+        display: flex;
+        height: 100%;
+        min-height: 0;
+      }
+      .split .list {
+        flex: 1;
+        min-width: 0;
+        overflow-y: auto;
+      }
+      .detail {
+        width: 290px;
+        flex: none;
+        border-left: 1px solid var(--border);
+        background: var(--bg-raised);
+        padding: 15px;
+        overflow-y: auto;
+      }
+      .detail .dt {
+        font-size: var(--fs-lg);
+        font-weight: 640;
+        line-height: 1.35;
+      }
+      .detail .dl {
+        display: flex;
+        gap: 10px;
+        font-size: var(--fs-xs);
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(46, 50, 61, 0.55);
+      }
+      .detail .dl b {
+        color: var(--text-muted);
+        font-weight: 400;
+        width: 52px;
+        flex: none;
+      }
+      .detail .acts {
+        margin-top: 13px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .detail .acts div {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: var(--fs-xs);
+        color: var(--text-secondary);
+      }
+      .detail .ro {
+        margin-top: 12px;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
+        font-size: 11.5px;
+        color: var(--text-muted);
+        line-height: 1.7;
+      }
+
       /* 검색 (SRCH) */
       .searchbar {
         display: flex;
@@ -944,6 +1005,9 @@
         <div class="krow"><kbd>t</kbd><span>오늘로</span></div>
         <div class="kgrp">일정</div>
         <div class="krow"><kbd>N</kbd><span>새 일정 (한 줄)</span></div>
+        <div class="krow"><kbd>Enter</kbd><span>상세 열기·닫기</span></div>
+        <div class="krow"><kbd>E</kbd><span>제목 고치기</span></div>
+        <div class="krow"><kbd>D</kbd><span>날짜·시각 옮기기</span></div>
         <div class="krow"><kbd>X</kbd><span>삭제</span></div>
         <div class="krow"><kbd>U</kbd><span>되돌리기</span></div>
         <div class="kgrp">시간 찾기</div>

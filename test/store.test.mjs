@@ -173,3 +173,35 @@ test('설정은 값을 그대로 돌려준다', () => {
   assert.equal(s.getSetting('ringSize'), 16, '덮어쓰기가 된다');
   s.close();
 });
+
+test('일정을 고칠 수 있다 (EV-05)', () => {
+  const { file } = tmpFile();
+  const s = createStore(file);
+  const cal = s.localCalendarId();
+  const id = s.addEvent({ calendarId: cal, title: '치과', startsAt: ISO(19), endsAt: ISO(19, 30) });
+
+  assert.equal(s.updateEvent(id, { title: '치과 스케일링' }), true);
+  assert.equal(s.getEvent(id).title, '치과 스케일링');
+
+  s.updateEvent(id, { startsAt: ISO(20), endsAt: ISO(20, 30) });
+  assert.equal(s.getEvent(id).startsAt, ISO(20));
+  s.close();
+});
+
+test('구독으로 들어온 일정은 고칠 수 없다 (EV-05)', () => {
+  const { file } = tmpFile();
+  const s = createStore(file);
+  const sub = s.addCalendar({ kind: 'subscription', name: '회사', url: 'https://x/y.ics' });
+  const id = s.addEvent({ calendarId: sub, title: '스크럼', startsAt: ISO(9, 30), uid: 'a' });
+
+  assert.equal(s.updateEvent(id, { title: '바꿔보기' }), false, '고쳐지는 척하면 안 된다');
+  assert.equal(s.getEvent(id).title, '스크럼', '다음 갱신에 어차피 덮인다');
+  s.close();
+});
+
+test('없는 일정을 고치려 하면 false', () => {
+  const { file } = tmpFile();
+  const s = createStore(file);
+  assert.equal(s.updateEvent(9999, { title: 'x' }), false);
+  s.close();
+});
