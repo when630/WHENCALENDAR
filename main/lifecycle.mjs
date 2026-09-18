@@ -13,6 +13,7 @@ import { createMainWindow } from './window.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stateAt, msUntilNextChange, DEFAULTS, dueReminders, remindText } from './clock.mjs';
 import { syncAll, SYNC_INTERVAL_MS } from './sync.mjs';
+import { createUpdater } from './update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -125,6 +126,7 @@ export function bootstrap() {
 
   const ctx = { store: null, settings: null, overlay: null, mainWindow: null, tray: null, timer: null, syncTimer: null };
   const sentReminders = new Set();
+  const failedShortcuts = [];
 
   function loadEvents() {
     const [from, to] = dayRange();
@@ -161,22 +163,53 @@ export function bootstrap() {
     ctx.timer = setTimeout(tick, next);
   }
 
-  function buildTray() {
-    const tray = new Tray(trayIcon());
-    tray.setToolTip('WHENCALENDAR');
-    const menu = Menu.buildFromTemplate([
+  // 업데이트 상태에 따라 문구가 바뀌므로 메뉴는 다시 만든다.
+  function rebuildTrayMenu(tray) {
+    const t = tray ?? ctx.tray;
+    if (!t) return;
+
+    const items = [
       { label: '일정 보기', click: () => ctx.mainWindow.show() },
       { type: 'separator' },
       {
         label: '오버레이 잠시 끄기',
         type: 'checkbox',
-        checked: ctx.overlay.suspended,
+        checked: ctx.overlay?.suspended ?? false,
         click: (item) => ctx.overlay.setSuspended(item.checked),
       },
+    ];
+
+    // 등록에 실패한 단축키가 있으면 알린다 — 눌러도 안 되는 이유를 알 방법이 그것뿐이다
+    if (failedShortcuts.length) {
+      items.push({ type: 'separator' });
+      for (const f of failedShortcuts) {
+        items.push({
+          label: `⚠ ${f.accel} 등록 실패 (${f.label}) — 다른 앱이 쓰는 중`,
+          enabled: false,
+        });
+      }
+    }
+
+    items.push(
       { type: 'separator' },
-      { label: '종료', click: () => app.quit() },
-    ]);
-    tray.setContextMenu(menu);
+      {
+        label: ctx.updater ? ctx.updater.line(app.getVersion()) : `버전 ${app.getVersion()}`,
+        click: () => {
+          if (!ctx.updater || ctx.updater.state.status === 'unsupported') return;
+          ctx.updater.check();
+        },
+      },
+      { type: 'separator' },
+      { label: '종료', click: () => app.quit() }
+    );
+
+    t.setContextMenu(Menu.buildFromTemplate(items));
+  }
+
+  function buildTray() {
+    const tray = new Tray(trayIcon());
+    tray.setToolTip('WHENCALENDAR');
+    rebuildTrayMenu(tray);
     tray.on('click', () => ctx.mainWindow.toggle());
     return tray;
   }
@@ -204,6 +237,7 @@ export function bootstrap() {
           store: ctx.store.ok,
           reason: ctx.store.state.reason,
           tray,
+          version: app.getVersion(),
           events: events.length,
           mode: st.mode,
           tier: st.tier,
@@ -225,7 +259,9 @@ export function bootstrap() {
     };
     registerIpc(ctx);
 
+    ctx.updater = createUpdater({ onChange: () => rebuildTrayMenu() });
     ctx.tray = buildTray();
+    ctx.updater.start();
 
     // 자는 동안 틱이 멈춰 있었다 — 깨어난 순간 과거 상태를 보여서는 안 된다 (OVL-14)
     powerMonitor.on('resume', tick);
@@ -244,8 +280,20 @@ export function bootstrap() {
     setTimeout(pump, 4000);
     ctx.syncTimer = setInterval(pump, SYNC_INTERVAL_MS);
 
-    globalShortcut.register('Ctrl+Alt+C', () => ctx.mainWindow.toggle());
-    globalShortcut.register('Ctrl+Alt+O', () => ctx.overlay.setSuspended(!ctx.overlay.suspended));
+    // register는 이미 잡힌 조합이면 **조용히 false를 돌려준다**(PLAT-02). 확인하지 않으면
+    // 사용자는 눌러도 안 되는 이유를 영영 알 수 없다 — 트레이 메뉴에 적어 둔다.
+    const bind = (accel, label, fn) => {
+      let ok = false;
+      try {
+        ok = globalShortcut.register(accel, fn) && globalShortcut.isRegistered(accel);
+      } catch {
+        ok = false;
+      }
+      if (!ok) failedShortcuts.push({ accel, label });
+      return ok;
+    };
+    bind('Ctrl+Alt+C', '창 열기·닫기', () => ctx.mainWindow.toggle());
+    bind('Ctrl+Alt+O', '오버레이 잠시 끄기', () => ctx.overlay.setSuspended(!ctx.overlay.suspended));
 
     tick();
   });
@@ -254,6 +302,7 @@ export function bootstrap() {
     clearTimeout(ctx.timer);
     clearInterval(ctx.syncTimer);
     globalShortcut.unregisterAll();
+    ctx.updater?.stop();
     ctx.overlay?.destroy();
     ctx.mainWindow?.destroy();
     ctx.settings?.flush();

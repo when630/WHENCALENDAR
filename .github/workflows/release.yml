@@ -1,0 +1,83 @@
+# 태그를 밀면 Windows 설치 파일을 만들어 Releases 드래프트에 올린다 (REL-02).
+#
+# WHENNOTE .github/workflows/release.yml에서 Windows 부분만 가져왔다. v1은 Windows만 낸다.
+#
+# 서명하지 않는다. CSC_IDENTITY_AUTO_DISCOVERY=false가 그것을 못 박는다 — 이 값을 빼면
+# electron-builder가 러너에서 아무 인증서나 집어가려다 빌드를 실패시키거나, 더 나쁘게는
+# 의도하지 않은 것으로 서명한다.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # 태그 없이 빌드만 확인하고 싶을 때 (올리지 않는다)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 테스트는 전부 순수 모듈이라 화면이 없어도 돈다 — Electron을 import하는 코드는
+      # 테스트 대상에서 빠져 있고, 그것이 update-text.mjs를 따로 떼어 둔 이유다.
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # 패키징 전에 진짜 Electron으로 한 번 돌려 본다 — 렌더러나 저장소가 깨진 채로
+      # 설치 파일이 나가는 것을 막는다. --smoke는 창을 띄우지 않아 헤드리스에서도 돈다.
+      # 트레이 아이콘이 비었는지도 여기서 걸린다(아이콘이 없으면 앱을 끌 방법이 사라진다).
+      - name: smoke
+        run: npm run smoke
+
+      # 여기서는 만들기만 한다. 올리는 것은 아래 publish 잡 하나가 맡는다 —
+      # build 스크립트에 --publish never가 없고 GH_TOKEN까지 있으면 electron-builder가
+      # 태그를 보고 스스로 드래프트를 하나 더 만들어 태그마다 릴리스가 둘이 된다.
+      - name: build
+        run: npm run build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      # latest.yml이 함께 올라가야 electron-updater가 새 버전을 본다 — 설치 파일만 올리면
+      # 앱은 영영 "아직 공개된 릴리스가 없습니다"라고 말한다.
+      - name: 올릴 파일 확인
+        run: find artifacts -type f | sort
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          draft: true # 사람이 내용을 보고 공개한다 — 자동으로 공개하지 않는다
+          generate_release_notes: true
