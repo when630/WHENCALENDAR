@@ -234,3 +234,76 @@ test('규칙을 사람 말로 되돌린다', () => {
 test('해석 요약에 반복이 함께 보인다 (EV-02)', () => {
   assert.match(describeParsed(p('매주 화 3시 주간회의 1시간')), /^매주 화 · /);
 });
+
+// ── 여러 날에 걸친 일정 (종일 기간)
+//
+// 끝은 iCalendar와 같이 배타적이다 — 25일까지라면 ends_at은 26일 0시다. 월 격자의 가로
+// 막대와 .ics 내보내기가 모두 그 약속 위에 서 있다.
+const lastDay = (r) => ymd(new Date(new Date(r.endsAt).getTime() - 1).toISOString());
+
+test('기간 — 물결·하이픈으로 이은 날짜', () => {
+  for (const line of ['9/21~9/25 워크숍', '9월 21일~25일 워크숍', '워크숍 9/21-9/25']) {
+    const r = p(line);
+    assert.equal(r.title, '워크숍', line);
+    assert.equal(r.allDay, true, line);
+    assert.equal(ymd(r.startsAt), '2026-09-21', line);
+    assert.equal(lastDay(r), '2026-09-25', line);
+  }
+});
+
+test('기간 — 부터 … 까지', () => {
+  for (const line of ['9월 21일부터 25일까지 워크숍', '21일부터 25일까지 워크숍']) {
+    const r = p(line);
+    assert.equal(r.title, '워크숍', line);
+    assert.equal(ymd(r.startsAt), '2026-09-21', line);
+    assert.equal(lastDay(r), '2026-09-25', line);
+  }
+});
+
+test('기간 — N일간', () => {
+  const r = p('내일부터 3일간 출장');
+  assert.equal(r.title, '출장');
+  assert.equal(ymd(r.startsAt), '2026-09-18');
+  assert.equal(lastDay(r), '2026-09-20');
+
+  const r2 = p('3일간 휴가'); // 시작을 말하지 않으면 오늘부터
+  assert.equal(ymd(r2.startsAt), '2026-09-17');
+  assert.equal(lastDay(r2), '2026-09-19');
+});
+
+test('기간 — 끝이 달을 넘어간다', () => {
+  const r = p('28일부터 3일까지 정산');
+  assert.equal(ymd(r.startsAt), '2026-09-28');
+  assert.equal(lastDay(r), '2026-10-03');
+});
+
+test('기간 — 끝을 요일로 말하면 시작 뒤의 그 요일이다', () => {
+  const r = p('다음주 월요일부터 금요일까지 교육');
+  assert.equal(r.title, '교육');
+  assert.equal(ymd(r.startsAt), '2026-09-21');
+  assert.equal(lastDay(r), '2026-09-25');
+
+  const r2 = p('내일부터 모레까지 워크숍');
+  assert.equal(ymd(r2.startsAt), '2026-09-18');
+  assert.equal(lastDay(r2), '2026-09-19');
+});
+
+test('시각을 말한 줄은 기간으로 보지 않는다', () => {
+  const r = p('3시부터 5시까지 회의');
+  assert.equal(r.title, '회의'); // 조사 "부터"가 제목에 남지 않는다
+  assert.equal(r.allDay, false);
+  assert.equal(ymd(r.startsAt), '2026-09-17');
+  assert.equal(hm(r.startsAt), '15:00');
+  assert.equal(hm(r.endsAt), '17:00');
+});
+
+test('하루짜리 종일은 그대로다 — 끝을 만들지 않는다', () => {
+  const r = p('9/23 워크숍');
+  assert.equal(r.allDay, true);
+  assert.equal(r.endsAt, null);
+});
+
+test('해석 요약이 기간을 보여 준다 (EV-02)', () => {
+  assert.equal(describeParsed(p('9/21~9/25 워크숍')), '9월 21일 (월) – 9월 25일 (금) · 종일');
+  assert.equal(describeParsed(p('9/23 워크숍')), '9월 23일 (수) · 종일');
+});

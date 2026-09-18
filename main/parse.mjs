@@ -161,6 +161,78 @@ function takeDate(text, now) {
   return { text, date: null, notes };
 }
 
+// ── 여러 날에 걸친 일정 (기간)
+//
+// "9/21~9/25 워크숍", "9월 21일부터 25일까지 워크숍", "내일부터 3일간 출장" 세 가지를 읽는다.
+// 종일 기간으로만 만든다 — 시각이 섞이면("21일 9시부터 25일 18시까지") 손대지 않고 기존
+// 해석에 맡긴다. 종일 일정의 끝은 iCalendar와 같이 **배타적**이다(마지막 날 + 1일).
+const DATE_TOK = String.raw`\d{1,2}\s*[/.]\s*\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일?|\d{1,2}\s*일`;
+
+// 조각에서 날짜 하나를 읽는다. "25일"처럼 달을 말하지 않았으면 기준일의 달에서 찾고,
+// 그 달에 이미 지났으면 다음 달로 본다 — "28일부터 3일까지"는 달을 넘는다.
+function dayIn(frag, now, base) {
+  const text = String(frag ?? '');
+  const d = takeDate(text, now);
+  if (d.date) {
+    let x = d.date;
+    const explicit = new RegExp(String.raw`^(?:${DATE_TOK})$`).test(text.trim());
+    while (base && !explicit && x < base) x = addDays(x, 7);
+    return { date: x, text: d.text };
+  }
+
+  const m = text.match(/(?:^|\s)(\d{1,2})\s*일(?=\s|$)/);
+  if (!m) return { date: null, text };
+
+  const ref = base ?? startOfDay(now);
+  let x = new Date(ref.getFullYear(), ref.getMonth(), Number(m[1]));
+  if (x < ref) x = new Date(ref.getFullYear(), ref.getMonth() + 1, Number(m[1]));
+  return { date: x, text: (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim() };
+}
+
+function takeRange(text, now) {
+  // 1) "내일부터 3일간" · "3일간"
+  let m = text.match(/(?:(.*?)\s*부터\s*)?(\d{1,2})\s*일\s*(?:간|동안)(?=\s|$)/);
+  if (m) {
+    const head = dayIn(m[1] ?? '', now, null);
+    const from = head.date ?? startOfDay(now);
+    return {
+      text: `${head.text} ${text.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim(),
+      from,
+      to: addDays(from, Math.max(1, Number(m[2])) - 1),
+    };
+  }
+
+  // 2) "9/21~9/25" · "9월 21일~25일" · "21일-25일"
+  m = text.match(new RegExp(String.raw`(${DATE_TOK})\s*[~–—-]\s*(${DATE_TOK})`));
+  if (m) {
+    const a = dayIn(m[1], now, null);
+    const b = dayIn(m[2], now, a.date);
+    if (a.date && b.date && b.date >= a.date) {
+      return {
+        text: (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim(),
+        from: a.date,
+        to: b.date,
+      };
+    }
+  }
+
+  // 3) "…부터 …까지"
+  m = text.match(/(.*?)\s*부터\s*(.*?)\s*까지/);
+  if (m) {
+    const a = dayIn(m[1], now, null);
+    const b = dayIn(m[2], now, a.date);
+    if (a.date && b.date && b.date >= a.date) {
+      return {
+        text: `${a.text} ${b.text} ${text.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim(),
+        from: a.date,
+        to: b.date,
+      };
+    }
+  }
+
+  return { text, from: null, to: null };
+}
+
 // ── 시각
 //
 // 오전·저녁 같은 말은 **시각 바로 앞에 붙었을 때만** 떼어낸다.
@@ -284,6 +356,24 @@ export function parseLine(input, now = new Date()) {
   const rep = takeRepeat(text, now);
   text = rep.text;
 
+  // 기간을 날짜보다 먼저 본다. takeDate가 먼저 돌면 시작 날짜만 먹고 "…까지"가 제목에 남는다.
+  // 시각을 말한 줄은 기간으로 보지 않는다 — "3시부터 5시까지"는 그날 두 시간짜리다.
+  if (takeTime(text).h === null) {
+    const range = takeRange(text, now);
+    if (range.from) {
+      const t = range.text.replace(/^[\s,·]+|[\s,·]+$/g, '').replace(/\s+/g, ' ');
+      return {
+        ok: t.length > 0,
+        title: t,
+        startsAt: range.from.toISOString(),
+        endsAt: addDays(range.to, 1).toISOString(),
+        allDay: true,
+        rrule: rep.rrule,
+        notes,
+      };
+    }
+  }
+
   const d = takeDate(text, now);
   text = d.text;
   notes.push(...d.notes);
@@ -295,8 +385,11 @@ export function parseLine(input, now = new Date()) {
   const dur = takeDuration(text);
   text = dur.text;
 
-  // 남은 것이 제목이다. 조사 부스러기(에, 에서)는 떼어 준다.
-  const title = text.replace(/^[\s,·]+|[\s,·]+$/g, '').replace(/\s+/g, ' ');
+  // 남은 것이 제목이다. 조사 부스러기(에, 에서, 부터)는 떼어 준다.
+  const title = text
+    .replace(/^[\s,·]+|[\s,·]+$/g, '')
+    .replace(/^(?:부터|까지)\s*/, '')
+    .replace(/\s+/g, ' ');
 
   const baseDate = d.date ?? rep.date ?? startOfDay(now);
   const allDay = t.h === null;
@@ -343,7 +436,14 @@ export function describe(parsed) {
   const s = new Date(parsed.startsAt);
   const day = `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]})`;
   const rep = parsed.rrule ? `${describeRrule(parsed.rrule)} · ` : '';
-  if (parsed.allDay) return `${rep}${day} · 종일`;
+  if (parsed.allDay) {
+    // 끝이 배타적이므로 1ms를 빼야 마지막 날이 나온다
+    const e = parsed.endsAt ? new Date(new Date(parsed.endsAt).getTime() - 1) : null;
+    if (e && (e.getMonth() !== s.getMonth() || e.getDate() !== s.getDate())) {
+      return `${rep}${day} – ${e.getMonth() + 1}월 ${e.getDate()}일 (${WEEK[e.getDay()]}) · 종일`;
+    }
+    return `${rep}${day} · 종일`;
+  }
   const hm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   const e = parsed.endsAt ? new Date(parsed.endsAt) : null;
   return e ? `${rep}${day} ${hm(s)} – ${hm(e)}` : `${rep}${day} ${hm(s)}`;
