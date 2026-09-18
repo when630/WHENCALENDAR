@@ -298,6 +298,12 @@ export function bootstrap() {
     tick();
   });
 
+  // 종료를 시작하기 전에 창의 "닫기는 숨기기" 빗장을 푼다 — 이것이 없으면 트레이의
+  // 종료가 먹히지 않는다(창이 close를 막아 quit이 취소된다).
+  app.on('before-quit', () => {
+    ctx.mainWindow?.allowClose();
+  });
+
   app.on('will-quit', () => {
     clearTimeout(ctx.timer);
     clearInterval(ctx.syncTimer);

@@ -74,6 +74,16 @@ export function createMainWindow(settings) {
       else this.show();
     },
 
+    // 닫기를 막는 빗장을 푼다.
+    //
+    // 트레이 "종료"가 부르는 app.quit()은 창마다 close를 보내는데, 위 핸들러가 그것을
+    // preventDefault로 막는다 — 닫기는 숨기기라는 약속이 종료에도 그대로 걸린다. 그러면
+    // quit이 취소되어 will-quit까지 가지 못하고, **창을 한 번이라도 연 뒤에는 앱을 끌
+    // 방법이 사라진다.** before-quit에서 이것을 불러 빗장을 풀어야 한다.
+    allowClose() {
+      if (win && !win.isDestroyed()) win.__reallyClose = true;
+    },
+
     // 일정이 바뀌면 열려 있는 창에 알린다. 닫혀 있으면 다음에 열 때 어차피 다시 읽는다.
     notifyChanged() {
       if (win && !win.isDestroyed()) win.webContents.send('cal:changed');
