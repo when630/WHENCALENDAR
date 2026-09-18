@@ -16,7 +16,7 @@ export { createUpdateState, updateLine, shortError } from './update-text.mjs';
 // electron-updater는 CommonJS다 — ESM에서는 구조분해로 꺼내야 한다.
 const { autoUpdater } = electronUpdater;
 
-export const RELEASES_URL = 'https://github.com/when630/WHENCALENDAR/releases/latest';
+export const RELEASES_URL = 'https://github.com/when630/whencalendar/releases/latest';
 
 // 켜자마자 확인하지 않는다 — 부팅이 무거워지고, 첫 화면이 느려지면 상주 앱의 쓸모가 준다.
 const FIRST_CHECK_MS = 60_000;
