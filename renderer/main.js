@@ -31,6 +31,7 @@ const el = {
   searchbar: document.getElementById('searchbar'),
   searchIn: document.getElementById('searchIn'),
   searchCnt: document.getElementById('searchCnt'),
+  footHints: document.getElementById('footHints'),
 };
 
 const state = {
@@ -89,12 +90,30 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// 종일 일정의 끝은 배타적이다(마지막 날 + 1일). 끝을 적지 않은 하루짜리는 그날 자정까지로
+// 본다 — 그러지 않으면 오늘 종일 일정이 0시를 넘긴 순간 "끝남"이 된다.
+function eventEnd(ev) {
+  const e = ev.endsAt ? new Date(ev.endsAt) : null;
+  if (!ev.allDay) return e;
+  return e ?? addDays(startOfDay(new Date(ev.startsAt)), 1);
+}
+
+function dayDiff(from, to) {
+  return Math.round((startOfDay(to) - startOfDay(from)) / 86400000);
+}
+
+// 종일 일정에는 "3시간 12분 뒤"가 어울리지 않는다. 날 단위로 말한다.
+function allDayLead(start, now) {
+  const d = dayDiff(now, start);
+  return d <= 0 ? '오늘' : d === 1 ? '내일' : `${d}일 뒤`;
+}
+
 function relTime(ms) {
   const s = Math.round(ms / 1000);
   if (s < 0) return '';
   const m = Math.floor(s / 60);
-  if (m >= 1440) return `${Math.floor(m / 1440)}일 뒤`;
-  if (m >= 60) return `${Math.floor(m / 60)}시간 ${m % 60}분`;
+  if (m >= 1440) return `${Math.floor(m / 1440)}일`;
+  if (m >= 60) return m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${Math.floor(m / 60)}시간`;
   if (m >= 1) return `${m}분`;
   return `${s}초`;
 }
@@ -104,6 +123,50 @@ function toast(msg) {
   el.toast.classList.add('show');
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.toast.classList.remove('show'), 2200);
+}
+
+// 본문을 통째로 갈아 끼운다. 상세가 붙는 순간 본문은 스크롤 상자가 아니라 좌우로 나뉜
+// 틀이 된다 — 패딩과 스크롤을 목록 쪽으로 넘겨야 패널이 창 오른쪽 끝에 딱 붙는다.
+function setBody(node, detail = false) {
+  el.body.classList.toggle('with-detail', detail);
+  el.body.replaceChildren(node);
+  renderHints();
+}
+
+function setDateLabel(text, isNow = false) {
+  el.dateLabel.replaceChildren(document.createTextNode(text));
+  if (!isNow) return;
+  const b = document.createElement('span');
+  b.className = 'now';
+  b.textContent = '오늘';
+  el.dateLabel.append(b);
+}
+
+// 골라 둔 칸은 늘 화면 안에 있어야 한다 — 키로 내려가다 보면 선택만 화면 밖으로 밀려난다
+function keepSelVisible() {
+  el.body.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
+}
+
+const HINTS = {
+  find: [['Space', '고르기'], ['Y', '복사'], ['F', '형식'], ['Esc', '닫기']],
+  search: [['jk', '위아래'], ['Enter', '상세'], ['Esc', '닫기']],
+  month: [['hjkl', '날짜'], ['[ ]', '달'], ['Enter', '그날 목록'], ['?', '키']],
+  subs: [['A', '주소 추가'], ['Space', '켜기·끄기'], ['R', '받아오기'], ['?', '키']],
+  set: [['jk', '고르기'], ['← →', '값 바꾸기'], ['?', '키']],
+  list: [['N', '새 일정'], ['Enter', '상세'], ['X', '삭제'], ['?', '키']],
+};
+
+function renderHints() {
+  const keys = HINTS[state.view === 'find' ? 'find' : state.view === 'search' ? 'search' : state.tab] ?? HINTS.list;
+  el.footHints.replaceChildren(
+    ...keys.map(([k, label]) => {
+      const s = document.createElement('span');
+      const kb = document.createElement('kbd');
+      kb.textContent = k;
+      s.append(kb, document.createTextNode(` ${label}`));
+      return s;
+    })
+  );
 }
 
 // ── 그리기
@@ -134,8 +197,10 @@ function eventRow(ev, now, nextId) {
   const e = ev.endsAt ? new Date(ev.endsAt) : null;
   const row = document.createElement('div');
 
-  const past = e ? e <= now : s <= now;
-  const live = e ? s <= now && now < e : false;
+  // 종일은 "진행 중"으로 칠하지 않는다 — 하루 내내 초록이면 강조가 아니다
+  const until = eventEnd(ev);
+  const past = until ? until <= now : s <= now;
+  const live = !ev.allDay && until ? s <= now && now < until : false;
   row.className = 'ev' + (past && !live ? ' past' : '') + (live ? ' live' : '') + (ev.id === nextId ? ' next' : '');
   row.dataset.id = String(ev.id);
 
@@ -162,12 +227,20 @@ function eventRow(ev, now, nextId) {
 
   const rt = document.createElement('span');
   rt.className = 'rt';
-  rt.textContent = live ? `${relTime(e - now)} 뒤 종료` : past ? '끝남' : relTime(s - now);
+  rt.textContent = live
+    ? `${relTime(until - now)} 뒤 종료`
+    : past
+      ? '끝남'
+      : ev.allDay
+        ? allDayLead(s, now)
+        : relTime(s - now);
 
   if (ev.rrule || ev.edited) {
     const sub = main.querySelector('.sub') ?? document.createElement('div');
     if (!sub.className) sub.className = 'sub';
-    const mark = [ev.rrule ? '↻ 반복' : null, ev.edited ? '이 회차만 고침' : null].filter(Boolean).join(' · ');
+    const mark = [ev.rrule ? rruleText(ev.rrule) : null, ev.edited ? '이 회차만 고침' : null]
+      .filter(Boolean)
+      .join(' · ');
     sub.textContent = sub.textContent ? `${sub.textContent} · ${mark}` : mark;
     if (!sub.parentNode) main.append(sub);
   }
@@ -178,10 +251,13 @@ function eventRow(ev, now, nextId) {
 
 function renderToday(now) {
   const list = state.events;
-  el.dateLabel.textContent = `${state.anchor.getMonth() + 1}월 ${state.anchor.getDate()}일 ${WEEK[state.anchor.getDay()]}`;
+  setDateLabel(
+    `${state.anchor.getMonth() + 1}월 ${state.anchor.getDate()}일 ${WEEK[state.anchor.getDay()]}`,
+    sameDay(state.anchor, now)
+  );
 
   if (list.length === 0) {
-    el.body.replaceChildren(emptyBox());
+    setBody(emptyBox());
     return;
   }
 
@@ -211,17 +287,20 @@ function renderToday(now) {
   });
 
   if (!nowLineDone) frag.append(nowLine(now));
-  el.body.replaceChildren(withDetail(frag));
-  el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
+  setBody(withDetail(frag), detailOn());
+  keepSelVisible();
 }
 
 function renderWeek(now) {
   const mon = mondayOf(state.anchor);
   const sun = addDays(mon, 6);
-  el.dateLabel.textContent = `${mon.getMonth() + 1}월 ${mon.getDate()}일 – ${sun.getMonth() + 1}월 ${sun.getDate()}일`;
+  setDateLabel(
+    `${mon.getMonth() + 1}월 ${mon.getDate()}일 – ${sun.getMonth() + 1}월 ${sun.getDate()}일`,
+    now >= mon && now < addDays(sun, 1)
+  );
 
   if (state.events.length === 0) {
-    el.body.replaceChildren(emptyBox());
+    setBody(emptyBox());
     return;
   }
 
@@ -252,8 +331,8 @@ function renderWeek(now) {
     frag.append(row);
   });
 
-  el.body.replaceChildren(withDetail(frag));
-  el.body.querySelector('.ev.sel')?.scrollIntoView({ block: 'nearest' });
+  setBody(withDetail(frag), detailOn());
+  keepSelVisible();
 }
 
 // 월 격자 (WIN-05·WIN-06)
@@ -278,9 +357,20 @@ function monthGridStart(anchor) {
   return mondayOf(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
 }
 
+// 기간 일정은 칸 위를 지나는 3px 선으로 잇는다. 선 넷이 겹쳐도 22px이면 되므로,
+// 막대(하나에 36px)가 칸 안을 밀어내던 문제가 사라진다.
+const LANE_STEP = 5;
+const MAX_LANES = 6;
+const LANE_MAX_PX = 34;
+// 칸 안쪽 여백 3px + 날짜 줄 16px + 사이 3px — 선은 날짜 바로 아래에서 시작한다
+const DNUM_H = 22;
+
 function renderMonth(now) {
   const anchor = state.anchor;
-  el.dateLabel.textContent = `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월`;
+  setDateLabel(
+    `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월`,
+    now.getFullYear() === anchor.getFullYear() && now.getMonth() === anchor.getMonth()
+  );
 
   const gridStart = monthGridStart(anchor);
   const byDay = new Map();
@@ -318,12 +408,33 @@ function renderMonth(now) {
     const row = document.createElement('div');
     row.className = 'wkrow';
 
+    // 이 주와 겹치는 다중일 일정을 **먼저** 눕힌다 — 칸이 비울 위 여백과 칸 안에 적을
+    // 이름이 여기서 정해진다. 긴 것이 위 줄로 간다(D-10).
+    const inWeek = multi
+      .filter((m) => m.from <= rowEnd && m.to >= rowStart)
+      .sort((a, b) => b.to - b.from - (a.to - a.from) || a.from - b.from)
+      .map((m) => ({
+        ...m,
+        col0: Math.max(0, Math.round((m.from - rowStart) / 86400000)),
+        col1: Math.min(6, Math.round((m.to - rowStart) / 86400000)),
+        contL: m.from < rowStart,
+      }));
+
+    const lanes = [];
+    for (const m of inWeek) {
+      const lane = lanes.findIndex((L) => L.every((x) => x.col1 < m.col0 || x.col0 > m.col1));
+      if (lane >= 0) lanes[lane].push(m);
+      else if (lanes.length < MAX_LANES) lanes.push([m]);
+      // 줄이 모자라면 선은 못 긋는다. 이름은 그대로 칸에 적으므로 사라지지는 않는다.
+    }
+    const reserve = lanes.length ? Math.min(lanes.length * LANE_STEP + 2, LANE_MAX_PX) : 0;
+
     for (let d = 0; d < 7; d++) {
       const day = addDays(rowStart, d);
       const c = document.createElement('div');
       c.className = 'c';
-      // 열을 명시해야 한다. 자동 배치에 맡기면 grid-column이 박힌 가로 막대가 칸을
-      // 점유하면서 **뒤 날짜들이 옆으로 밀려 사라진다** — 실제로 18~20일이 없어졌다.
+      // 열을 명시해야 한다. 자동 배치에 맡기면 grid-column이 박힌 선이 칸을 점유하면서
+      // **뒤 날짜들이 옆으로 밀려 사라진다** — 실제로 18~20일이 없어졌다.
       c.style.gridColumn = `${d + 1} / ${d + 2}`;
       if (day.getMonth() !== anchor.getMonth()) c.classList.add('out');
       if (d >= 5) c.classList.add('we');
@@ -331,13 +442,35 @@ function renderMonth(now) {
       if (sameDay(day, state.anchor)) c.classList.add('sel');
       c.dataset.day = day.toISOString();
 
+      const head = document.createElement('div');
+      head.className = 'chead';
       const num = document.createElement('span');
       num.className = 'dnum';
       num.textContent = String(day.getDate());
-      c.append(num);
+      head.append(num);
+      // 선이 날짜 아래로 지나가므로 날짜 자리는 주마다 흔들리지 않는다
+      if (reserve) head.style.marginBottom = `${reserve}px`;
+      c.append(head);
+
+      // 여기서 시작하는 기간의 이름. 주를 넘어온 것은 그 주 첫 칸에 "…"를 달고 다시 적는다 —
+      // 선만 보고는 무슨 일정인지 알 수 없고, 이름을 찾으러 지난 주로 돌아갈 수는 없다.
+      for (const m of inWeek) {
+        if (m.col0 !== d) continue;
+        const nm = document.createElement('div');
+        nm.className = 'nm';
+        nm.style.color = `var(--cal-${m.ev.color ?? 1})`;
+        if (m.contL) {
+          const b = document.createElement('b');
+          b.textContent = '…';
+          nm.append(b);
+        }
+        nm.append(document.createTextNode(m.ev.title));
+        c.append(nm);
+      }
 
       const list = byDay.get(dayKey(day)) ?? [];
-      list.slice(0, 2).forEach((ev) => {
+      c.dataset.total = String(list.length);
+      list.slice(0, 3).forEach((ev) => {
         const pin = document.createElement('span');
         pin.className = 'pin';
         const i = document.createElement('i');
@@ -345,71 +478,20 @@ function renderMonth(now) {
         pin.append(i, document.createTextNode(ev.title));
         c.append(pin);
       });
-      if (list.length > 2) {
-        const plus = document.createElement('span');
-        plus.className = 'plus';
-        plus.textContent = `+${list.length - 2}`;
-        c.append(plus);
-      }
       row.append(c);
     }
 
-    // 이 주와 겹치는 다중일 일정 — 긴 것이 위 레인으로 간다(D-10)
-    const inWeek = multi
-      .filter((m) => m.from <= rowEnd && m.to >= rowStart)
-      .sort((a, b) => b.to - b.from - (a.to - a.from) || a.from - b.from);
-
-    const lanes = [[], []];
-    let overflow = 0;
-    for (const m of inWeek) {
-      const col0 = Math.max(0, Math.round((m.from - rowStart) / 86400000));
-      const col1 = Math.min(6, Math.round((m.to - rowStart) / 86400000));
-      const lane = lanes.findIndex((L) => L.every((x) => x.col1 < col0 || x.col0 > col1));
-      if (lane === -1) {
-        overflow++;
-        continue;
-      }
-      lanes[lane].push({ ...m, col0, col1 });
-    }
-
-    const used = lanes.filter((L) => L.length).length;
-    if (used) row.classList.add(used >= 2 || overflow ? 'lane2' : 'lane1');
-
+    // 칸 위를 지나는 얇은 선. 칸과 칸 사이 틈도 건너므로 이어짐이 끊기지 않는다.
     lanes.forEach((lane, li) => {
       for (const m of lane) {
-        const bar = document.createElement('div');
-        bar.className = 'span' + (li === 1 ? ' l2' : '');
-        bar.style.gridColumn = `${m.col0 + 1}/${m.col1 + 2}`;
-        bar.style.background = `var(--cal-${m.ev.color ?? 1})`;
-        // 주 경계를 넘으면 잘린 쪽 모서리를 각지게 해 이어짐을 알린다
-        if (m.from < rowStart) {
-          bar.classList.add('contL');
-          const ar = document.createElement('span');
-          ar.className = 'ar';
-          ar.textContent = '◂';
-          bar.append(ar);
-        }
-        bar.append(document.createTextNode(m.ev.title));
-        if (m.to > rowEnd) {
-          bar.classList.add('contR');
-          const ar = document.createElement('span');
-          ar.className = 'ar';
-          ar.textContent = '▸';
-          bar.append(ar);
-        }
-        row.append(bar);
+        const line = document.createElement('div');
+        line.className = 'spanline';
+        line.style.gridColumn = `${m.col0 + 1}/${m.col1 + 2}`;
+        line.style.background = `var(--cal-${m.ev.color ?? 1})`;
+        line.style.marginTop = `${DNUM_H + li * LANE_STEP}px`;
+        row.append(line);
       }
     });
-
-    if (overflow) {
-      const more = document.createElement('div');
-      more.className = 'morespan';
-      more.style.gridColumn = '7/8';
-      const sp = document.createElement('span');
-      sp.textContent = `+${overflow}`;
-      more.append(sp);
-      row.append(more);
-    }
 
     cells.append(row);
   }
@@ -433,7 +515,40 @@ function renderMonth(now) {
   bar.append(b, sp);
   wrap.append(bar);
 
-  el.body.replaceChildren(wrap);
+  setBody(wrap);
+  fitMonthCells();
+}
+
+// 칸 높이는 창 크기를 따라간다. 들어가지 못한 줄이 반쯤 잘려 보이면 지저분하므로,
+// 그린 뒤 실제 높이를 재서 넘치는 줄을 지우고 "+n"으로 합친다.
+function fitMonthCells() {
+  for (const c of el.body.querySelectorAll('.mon .c')) {
+    const total = Number(c.dataset.total ?? 0);
+    const pins = [...c.querySelectorAll('.pin')];
+    const names = [...c.querySelectorAll('.nm')];
+    c.querySelector('.plus')?.remove();
+
+    const over = () => c.scrollHeight > c.clientHeight;
+    // 그날 하나짜리 일정부터 접는다. 기간 이름은 그 칸에서만 볼 수 있으므로 끝까지 남긴다.
+    let shownPins = pins.length;
+    let shownNames = names.length;
+    while (shownPins > 0 && over()) pins[--shownPins].remove();
+    while (shownNames > 0 && over()) names[--shownNames].remove();
+
+    const hidden = () => total - shownPins + (names.length - shownNames);
+    if (hidden() <= 0) continue;
+
+    const plus = document.createElement('span');
+    plus.className = 'plus';
+    plus.textContent = `+${hidden()}`;
+    c.querySelector('.chead').append(plus);
+    // "+n" 한 줄을 넣느라 또 넘치면 한 줄 더 줄인다
+    while (over() && (shownPins > 0 || shownNames > 0)) {
+      if (shownPins > 0) pins[--shownPins].remove();
+      else names[--shownNames].remove();
+      plus.textContent = `+${hidden()}`;
+    }
+  }
 }
 
 // ── 검색 (SRCH)
@@ -486,11 +601,11 @@ function markHit(text, query) {
 function renderSearch(now) {
   el.searchCnt.textContent = state.query ? `${state.results.length}건` : '';
   if (!state.query) {
-    el.body.replaceChildren(hintBox('제목 일부나 초성을 치세요', '예) 리뷰 · ㄷㅈㅇ'));
+    setBody(hintBox('제목 일부나 초성을 치세요', '예) 리뷰 · ㄷㅈㅇ'));
     return;
   }
   if (!state.results.length) {
-    el.body.replaceChildren(hintBox('찾은 일정이 없습니다', state.query));
+    setBody(hintBox('찾은 일정이 없습니다', state.query));
     return;
   }
 
@@ -509,7 +624,8 @@ function renderSearch(now) {
   };
   section('앞으로', upcoming);
   section('지난 일정', past);
-  el.body.replaceChildren(frag);
+  setBody(frag);
+  keepSelVisible();
 }
 
 function searchRow(ev, now) {
@@ -563,7 +679,7 @@ function hintBox(big, small) {
 
 // ── 빈 시간 찾기 (FIND)
 function renderFind() {
-  el.dateLabel.textContent = '빈 시간 찾기';
+  setDateLabel('빈 시간 찾기');
   const frag = document.createDocumentFragment();
 
   const bar = document.createElement('div');
@@ -618,7 +734,8 @@ function renderFind() {
     frag.append(box);
   }
 
-  el.body.replaceChildren(frag);
+  setBody(frag);
+  keepSelVisible();
 }
 
 function seg(labels, active) {
@@ -653,17 +770,19 @@ async function refreshCopyPreview() {
 // ── 상세 (EV-04·EV-05)
 //
 // 목록을 밀어내지 않고 오른쪽에 붙인다. 목록이 사라지면 "다음이 뭐였지"를 다시 찾아야 한다.
+function detailOn() {
+  return state.detail && !!currentEvent();
+}
+
 function withDetail(listNode) {
-  if (!state.detail) return listNode;
-  const ev = currentEvent();
-  if (!ev) return listNode;
+  if (!detailOn()) return listNode;
 
   const split = document.createElement('div');
   split.className = 'split';
   const left = document.createElement('div');
   left.className = 'list';
   left.append(listNode);
-  split.append(left, detailPane(ev));
+  split.append(left, detailPane(currentEvent()));
   return split;
 }
 
@@ -671,75 +790,163 @@ function currentEvent() {
   return state.events[state.cursor] ?? null;
 }
 
+const DOW_KR = { MO: '월', TU: '화', WE: '수', TH: '목', FR: '금', SA: '토', SU: '일' };
+
+// RRULE을 사람 말로 옮긴다. 읽지 못하는 규칙은 원문 그대로 둔다 — 틀리게 요약하느니 낫다.
+function rruleText(rrule) {
+  const body = String(rrule).replace(/^RRULE:/i, '');
+  const p = Object.fromEntries(
+    body
+      .split(';')
+      .filter(Boolean)
+      .map((kv) => {
+        const [k, v] = kv.split('=');
+        return [k.toUpperCase(), v ?? ''];
+      })
+  );
+  const unit = { DAILY: '일', WEEKLY: '주', MONTHLY: '개월', YEARLY: '년' }[p.FREQ];
+  if (!unit) return body;
+
+  const every = Number(p.INTERVAL ?? 1);
+  let out =
+    every > 1 ? `${every}${unit}마다` : { DAILY: '매일', WEEKLY: '매주', MONTHLY: '매월', YEARLY: '매년' }[p.FREQ];
+  if (p.BYDAY) out += ` ${p.BYDAY.split(',').map((x) => DOW_KR[x.replace(/^[-\d]+/, '')] ?? x).join('·')}`;
+  if (p.COUNT) out += ` · ${p.COUNT}회`;
+  if (p.UNTIL) out += ` · ${p.UNTIL.replace(/^(\d{4})(\d{2})(\d{2}).*$/, '$1.$2.$3')}까지`;
+  return out;
+}
+
+function durText(min) {
+  if (min < 60) return `${min}분`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}시간 ${m}분` : `${h}시간`;
+}
+
 function detailPane(ev) {
   const d = document.createElement('div');
   d.className = 'detail';
 
-  const t = document.createElement('div');
-  t.className = 'dt';
-  t.textContent = ev.title;
-  d.append(t, spacer(11));
-
   const s = new Date(ev.startsAt);
   const e = ev.endsAt ? new Date(ev.endsAt) : null;
   const now = new Date();
+  const fromSub = ev.calendarKind === 'subscription';
 
+  // 어느 달력에서 왔는지. 색이 목록의 세로 막대와 같아야 같은 일정으로 읽힌다.
+  const cal = document.createElement('div');
+  cal.className = 'dcal';
+  const dot = document.createElement('i');
+  dot.style.background = `var(--cal-${ev.color ?? 1})`;
+  const nm = document.createElement('span');
+  nm.textContent = ev.calendarName ?? '이 PC';
+  cal.append(dot, nm);
+  if (fromSub) {
+    const ro = document.createElement('em');
+    ro.textContent = '읽기 전용';
+    cal.append(ro);
+  }
+
+  const t = document.createElement('div');
+  t.className = 'dt';
+  t.textContent = ev.title;
+  d.append(cal, t);
+
+  // 언제 — 여기서 가장 먼저 읽는 것이다. 날짜 한 줄, 시각 한 줄.
+  const when = document.createElement('div');
+  when.className = 'dwhen';
+  // 종일 일정의 끝은 배타적이다(마지막 날 + 1일) — 1ms를 빼야 사람이 말하는 마지막 날이 된다
+  const lastDay = ev.allDay && e ? new Date(e.getTime() - 1) : null;
+  const spans = lastDay && !sameDay(s, lastDay);
+
+  const d1 = document.createElement('div');
+  d1.className = 'd1';
+  d1.textContent = spans
+    ? `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]}) – ${lastDay.getMonth() + 1}월 ${lastDay.getDate()}일 (${WEEK[lastDay.getDay()]})`
+    : `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]})`;
+  const d2 = document.createElement('div');
+  d2.className = 'd2';
+  if (ev.allDay) {
+    d2.append(document.createTextNode('종일'));
+    if (spans) {
+      const dur = document.createElement('span');
+      dur.className = 'dur';
+      dur.textContent = `${Math.round((startOfDay(lastDay) - startOfDay(s)) / 86400000) + 1}일간`;
+      d2.append(dur);
+    }
+  } else {
+    d2.append(document.createTextNode(e ? `${hm(s)} – ${hm(e)}` : hm(s)));
+    if (e) {
+      const dur = document.createElement('span');
+      dur.className = 'dur';
+      dur.textContent = durText(Math.round((e - s) / 60000));
+      d2.append(dur);
+    }
+  }
+  when.append(d1, d2);
+  d.append(when);
+
+  // 목록 오른쪽 끝에 작게 적힌 말을 여기서 한 번 더, 크게.
+  const until = eventEnd(ev);
+  const live = until ? s <= now && now < until : false;
+  const past = until ? until <= now : s <= now;
+  const st = document.createElement('div');
+  st.className = 'dstate' + (live && !ev.allDay ? ' live' : past ? ' past' : '');
+  if (past) {
+    st.textContent = '지났습니다';
+  } else if (ev.allDay) {
+    const total = lastDay ? dayDiff(s, lastDay) + 1 : 1;
+    st.textContent = live
+      ? total > 1
+        ? `진행 중 · ${total}일 중 ${dayDiff(s, now) + 1}일째`
+        : '오늘'
+      : total > 1
+        ? `${allDayLead(s, now)}부터`
+        : allDayLead(s, now);
+  } else {
+    st.textContent = live ? `진행 중 · ${relTime(until - now)} 남음` : `${relTime(s - now)} 뒤 시작`;
+  }
+  d.append(st);
+
+  const meta = document.createElement('div');
+  meta.className = 'dmeta';
   const line = (label, value) => {
     const row = document.createElement('div');
     row.className = 'dl';
     const b = document.createElement('b');
     b.textContent = label;
     const v = document.createElement('span');
-    if (value instanceof Node) v.append(value);
-    else v.textContent = value;
+    v.textContent = value;
     row.append(b, v);
-    d.append(row);
+    meta.append(row);
   };
-
-  line('언제', ev.allDay
-    ? `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]}) · 종일`
-    : `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]})\n${hm(s)}${e ? ` – ${hm(e)}` : ''}`);
-
-  if (!ev.allDay) {
-    const left = s - now;
-    const v = document.createElement('span');
-    v.style.color = left > 0 ? 'var(--accent)' : 'var(--text-muted)';
-    v.style.fontWeight = '650';
-    v.textContent = left > 0 ? relTime(left) : e && now < e ? `${relTime(e - now)} 뒤 종료` : '끝남';
-    line('남음', v);
-  }
-
-  const chip = document.createElement('span');
-  chip.textContent = ev.calendarName ?? '이 PC';
-  line('달력', chip);
-  line('출처', ev.calendarKind === 'subscription' ? '구독 (읽기 전용)' : '직접 등록');
-  if (ev.rrule) line('반복', ev.rrule.replace(/^RRULE:/, ''));
   if (ev.location) line('장소', ev.location);
+  if (ev.rrule) line('반복', rruleText(ev.rrule) + (ev.edited ? ' · 이 회차만 고침' : ''));
+  else if (ev.edited) line('변경', '이 회차만 고침');
+  if (meta.children.length) d.append(meta);
 
-  if (ev.calendarKind === 'subscription') {
+  if (fromSub) {
     const ro = document.createElement('div');
     ro.className = 'ro';
-    ro.textContent = '구독으로 들어온 일정입니다. 여기서 고치면 다음 갱신에 되돌아가므로 고칠 수 없게 두었습니다. 원래 캘린더에서 바꾸세요.';
+    ro.textContent =
+      '구독으로 들어온 일정입니다. 여기서 고치면 다음 갱신에 되돌아가므로 고칠 수 없게 두었습니다. 원래 캘린더에서 바꾸세요.';
     d.append(ro);
     return d;
   }
 
   const acts = document.createElement('div');
   acts.className = 'acts';
-  for (const [k, label] of [['E', '제목'], ['D', '날짜·시각'], ['X', '삭제'], ['U', '되돌리기']]) {
+  const items = [['E', '제목 고치기'], ['D', '날짜·시각 옮기기'], ['X', '삭제'], ['U', '되돌리기']];
+  if (ev.rrule) items.splice(2, 0, ['R', '이 회차부터 반복 끊기']);
+  for (const [k, label] of items) {
     const row = document.createElement('div');
     const kbd = document.createElement('kbd');
     kbd.textContent = k;
-    row.append(kbd, document.createTextNode(label));
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    row.append(kbd, sp);
     acts.append(row);
   }
   d.append(acts);
-  return d;
-}
-
-function spacer(px) {
-  const d = document.createElement('div');
-  d.style.height = `${px}px`;
   return d;
 }
 
@@ -802,7 +1009,7 @@ function settingRows() {
 const settingItems = () => settingRows().filter((r) => !r.grp);
 
 function renderSettings() {
-  el.dateLabel.textContent = '';
+  setDateLabel('');
   const st = state.settings ?? {};
   const wrap = document.createElement('div');
   wrap.className = 'set';
@@ -866,7 +1073,8 @@ function renderSettings() {
     wrap.append(row);
   }
 
-  el.body.replaceChildren(wrap);
+  setBody(wrap);
+  keepSelVisible();
 }
 
 async function loadSettings() {
@@ -958,7 +1166,7 @@ async function pickAsk(i) {
 }
 
 function renderSubs() {
-  el.dateLabel.textContent = '';
+  setDateLabel('');
   const frag = document.createDocumentFragment();
 
   const subs = state.subs.filter((c) => c.kind === 'subscription');
@@ -1003,7 +1211,8 @@ function renderSubs() {
     for (const c of local) frag.append(subRow(c, false));
   }
 
-  el.body.replaceChildren(frag);
+  setBody(frag);
+  keepSelVisible();
 }
 
 function subRow(c, selected) {
@@ -1478,18 +1687,26 @@ document.addEventListener('keydown', async (e) => {
   }
   // ── 월 탭에서만 듣는 키 — 격자는 목록이 아니라 날짜를 옮긴다 (WIN-05)
   if (state.tab === 'month' && k !== 'Tab' && k !== '?' && k !== 'Escape' && k !== 'n' && k !== 'N' && k !== 'ㅜ') {
-    const step = { h: -1, ArrowLeft: null, l: 1, j: 7, k: -7, ArrowDown: 7, ArrowUp: -7 }[k];
-    if (step != null) {
+    // 달 넘기기는 [ ] · PageUp/Down · Shift+←→ 로만 한다. 방향키 한 번에 달이 통째로
+    // 바뀌면 "옆 칸으로 가려다 어디 있는지 잃어버린다" — 격자에서는 hjkl과 같아야 한다.
+    const jump = k === ']' || k === 'PageDown' || (e.shiftKey && k === 'ArrowRight') ? 1
+      : k === '[' || k === 'PageUp' || (e.shiftKey && k === 'ArrowLeft') ? -1
+      : 0;
+    if (jump) {
       e.preventDefault();
-      state.anchor = addDays(state.anchor, step);
+      state.anchor = new Date(state.anchor.getFullYear(), state.anchor.getMonth() + jump, 1);
       await load();
       return;
     }
-    if (k === 'ArrowRight' || k === 'ArrowLeft') {
+
+    const step = { h: -1, l: 1, ArrowLeft: -1, ArrowRight: 1, j: 7, k: -7, ArrowDown: 7, ArrowUp: -7 }[k];
+    if (step != null) {
       e.preventDefault();
-      const d = k === 'ArrowRight' ? 1 : -1;
-      state.anchor = new Date(state.anchor.getFullYear(), state.anchor.getMonth() + d, 1);
-      await load();
+      // 보이는 6주 밖으로 나갈 때만 다시 읽는다 — 칸을 옮길 때마다 저장소를 부르면 커서가 끈적거린다
+      const grid = monthGridStart(state.anchor).getTime();
+      state.anchor = addDays(state.anchor, step);
+      if (monthGridStart(state.anchor).getTime() === grid) rerender();
+      else await load();
       return;
     }
     if (k === 't' || k === 'T' || k === 'ㅅ') {
@@ -1779,6 +1996,13 @@ el.dlgIn.addEventListener('input', () => {
 });
 
 window.cal.onChanged(() => load());
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  if (state.tab !== 'month' || state.view) return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => rerender(), 120);
+});
 
 // 화면에 "몇 분 남음"이 떠 있으므로 가만히 둬도 낡지 않게 한다
 setInterval(() => {
