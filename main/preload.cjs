@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('cal', {
   get: (id) => ipcRenderer.invoke('cal:get', id),
   update: (id, patch) => ipcRenderer.invoke('cal:update', { id, patch }),
   reschedule: (id, line) => ipcRenderer.invoke('cal:reschedule', { id, line }),
+  series: (payload) => ipcRenderer.invoke('cal:series', payload),
   info: () => ipcRenderer.invoke('app:info'),
   onChanged: (fn) => ipcRenderer.on('cal:changed', () => fn()),
   hide: () => ipcRenderer.send('win:hide'),

@@ -46,6 +46,52 @@ function cut(text, re) {
   return { text: (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim(), hit: m };
 }
 
+// ── 반복 (EV-07)
+//
+// 날짜보다 **먼저** 떼어낸다. "매주 화 3시"에서 takeDate가 "화"를 먼저 먹으면 그냥 이번 주
+// 화요일 한 건이 되고 반복이라는 사실이 사라진다.
+const DOW_RRULE = { 일: 'SU', 월: 'MO', 화: 'TU', 수: 'WE', 목: 'TH', 금: 'FR', 토: 'SA' };
+
+function takeRepeat(text, now) {
+  const m = text.match(/(매일|날마다|매주|주마다|격주|매달|매월|달마다|매년|해마다)\s*([월화수목금토일])?\s*요?일?/);
+  if (!m) return { text, rrule: null, date: null };
+
+  const word = m[1];
+  const dow = m[2] ?? null;
+  const rest = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim();
+
+  // 며칠인지 따로 말했으면(매달 15일) 그것도 규칙에 넣는다
+  let monthDay = null;
+  const dm = rest.match(/(\d{1,2})\s*일(?!\s*간)/);
+
+  let rrule = null;
+  let date = null;
+
+  if (/매일|날마다/.test(word)) {
+    rrule = 'FREQ=DAILY';
+  } else if (/매주|주마다|격주/.test(word)) {
+    const every2 = word === '격주';
+    rrule = `FREQ=WEEKLY${every2 ? ';INTERVAL=2' : ''}${dow ? `;BYDAY=${DOW_RRULE[dow]}` : ''}`;
+  } else if (/매달|매월|달마다/.test(word)) {
+    if (dm) monthDay = Number(dm[1]);
+    rrule = `FREQ=MONTHLY${monthDay ? `;BYMONTHDAY=${monthDay}` : ''}`;
+  } else {
+    rrule = 'FREQ=YEARLY';
+  }
+
+  // 시작일 — 요일을 말했으면 가장 가까운 그 요일부터
+  if (dow) {
+    const target = WEEK.indexOf(dow);
+    date = addDays(startOfDay(now), (target - now.getDay() + 7) % 7);
+  } else if (monthDay) {
+    const d = new Date(now.getFullYear(), now.getMonth(), monthDay);
+    date = d < startOfDay(now) ? new Date(now.getFullYear(), now.getMonth() + 1, monthDay) : d;
+  }
+
+  const cleaned = monthDay ? rest.replace(dm[0], ' ').replace(/\s+/g, ' ').trim() : rest;
+  return { text: cleaned, rrule, date };
+}
+
 // ── 날짜
 function takeDate(text, now) {
   const notes = [];
@@ -235,6 +281,9 @@ export function parseLine(input, now = new Date()) {
   let text = raw;
   const notes = [];
 
+  const rep = takeRepeat(text, now);
+  text = rep.text;
+
   const d = takeDate(text, now);
   text = d.text;
   notes.push(...d.notes);
@@ -249,7 +298,7 @@ export function parseLine(input, now = new Date()) {
   // 남은 것이 제목이다. 조사 부스러기(에, 에서)는 떼어 준다.
   const title = text.replace(/^[\s,·]+|[\s,·]+$/g, '').replace(/\s+/g, ' ');
 
-  const baseDate = d.date ?? startOfDay(now);
+  const baseDate = d.date ?? rep.date ?? startOfDay(now);
   const allDay = t.h === null;
 
   let start;
@@ -283,6 +332,7 @@ export function parseLine(input, now = new Date()) {
     startsAt: start.toISOString(),
     endsAt: end ? end.toISOString() : null,
     allDay,
+    rrule: rep.rrule,
     notes,
   };
 }
@@ -292,8 +342,46 @@ export function describe(parsed) {
   if (!parsed.startsAt) return '';
   const s = new Date(parsed.startsAt);
   const day = `${s.getMonth() + 1}월 ${s.getDate()}일 (${WEEK[s.getDay()]})`;
-  if (parsed.allDay) return `${day} · 종일`;
+  const rep = parsed.rrule ? `${describeRrule(parsed.rrule)} · ` : '';
+  if (parsed.allDay) return `${rep}${day} · 종일`;
   const hm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   const e = parsed.endsAt ? new Date(parsed.endsAt) : null;
-  return e ? `${day} ${hm(s)} – ${hm(e)}` : `${day} ${hm(s)}`;
+  return e ? `${rep}${day} ${hm(s)} – ${hm(e)}` : `${rep}${day} ${hm(s)}`;
+}
+
+// RRULE을 사람 말로. 화면과 상세 패널이 같은 문구를 쓴다.
+export function describeRrule(rrule) {
+  if (!rrule) return '';
+  const r = String(rrule).replace(/^RRULE:/, '');
+  const get = (k) => (r.match(new RegExp(`${k}=([^;]+)`)) ?? [])[1] ?? null;
+  const freq = get('FREQ');
+  const interval = Number(get('INTERVAL') ?? 1);
+  const byday = get('BYDAY');
+  const bymonthday = get('BYMONTHDAY');
+  const count = get('COUNT');
+  const until = get('UNTIL');
+
+  const dowKo = byday
+    ? byday
+        .split(',')
+        .map((c) => Object.entries(DOW_RRULE).find(([, v]) => v === c)?.[0])
+        .filter(Boolean)
+        .join('·')
+    : '';
+
+  let base;
+  if (freq === 'DAILY') base = interval > 1 ? `${interval}일마다` : '매일';
+  else if (freq === 'WEEKLY') base = `${interval > 1 ? `${interval}주마다` : '매주'}${dowKo ? ` ${dowKo}` : ''}`;
+  else if (freq === 'MONTHLY') base = `매달${bymonthday ? ` ${bymonthday}일` : ''}`;
+  else if (freq === 'YEARLY') base = '매년';
+  else base = '반복';
+
+  if (count) return `${base} · ${count}번`;
+  if (until) {
+    const y = until.slice(0, 4);
+    const mo = until.slice(4, 6);
+    const dd = until.slice(6, 8);
+    return `${base} · ${Number(mo)}월 ${Number(dd)}일까지`;
+  }
+  return base;
 }

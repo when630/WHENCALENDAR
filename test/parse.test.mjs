@@ -191,3 +191,46 @@ test('오전·저녁은 시각 바로 앞에 붙었을 때만 떼어낸다', () 
   assert.equal(hm(p('내일 7시 아침 운동').startsAt), '07:00');
   assert.equal(p('내일 아침 7시 운동').title, '운동');
 });
+
+// ── 반복 (EV-07)
+import { describeRrule } from '../main/parse.mjs';
+
+test('매주·격주·매일·매달을 규칙으로 읽는다', () => {
+  assert.equal(p('매주 화 3시 주간회의').rrule, 'FREQ=WEEKLY;BYDAY=TU');
+  assert.equal(p('격주 월 10시 격주회의').rrule, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO');
+  assert.equal(p('매일 9시 스탠드업').rrule, 'FREQ=DAILY');
+  assert.equal(p('매달 15일 10시 정산').rrule, 'FREQ=MONTHLY;BYMONTHDAY=15');
+  assert.equal(p('매년 3월 2일 기념일').rrule, 'FREQ=YEARLY');
+});
+
+test('반복이 아니면 rrule이 없다', () => {
+  assert.equal(p('내일 3시 회의').rrule, null);
+});
+
+test('반복을 먼저 떼어내야 요일이 날짜로 먹히지 않는다', () => {
+  // "매주 화"에서 화를 날짜로 먹으면 이번 주 화요일 한 건이 되고 반복이 사라진다
+  const r = p('매주 화 3시 주간회의');
+  assert.equal(r.rrule, 'FREQ=WEEKLY;BYDAY=TU');
+  assert.equal(r.title, '주간회의');
+  assert.equal(hm(r.startsAt), '15:00');
+  assert.equal(new Date(r.startsAt).getDay(), 2, '가장 가까운 화요일부터 시작');
+});
+
+test('반복 일정의 제목에서 반복 낱말이 빠진다', () => {
+  assert.equal(p('매일 9시 스탠드업 15분').title, '스탠드업');
+  assert.equal(p('매달 15일 10시 정산 회의').title, '정산 회의');
+});
+
+test('규칙을 사람 말로 되돌린다', () => {
+  assert.equal(describeRrule('FREQ=WEEKLY;BYDAY=TU'), '매주 화');
+  assert.equal(describeRrule('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO'), '2주마다 월');
+  assert.equal(describeRrule('FREQ=DAILY'), '매일');
+  assert.equal(describeRrule('FREQ=MONTHLY;BYMONTHDAY=15'), '매달 15일');
+  assert.equal(describeRrule('FREQ=WEEKLY;COUNT=3'), '매주 · 3번');
+  assert.equal(describeRrule('FREQ=WEEKLY;UNTIL=20261231T000000Z'), '매주 · 12월 31일까지');
+  assert.equal(describeRrule(null), '');
+});
+
+test('해석 요약에 반복이 함께 보인다 (EV-02)', () => {
+  assert.match(describeParsed(p('매주 화 3시 주간회의 1시간')), /^매주 화 · /);
+});

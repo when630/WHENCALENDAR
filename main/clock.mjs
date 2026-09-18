@@ -141,3 +141,50 @@ export function msUntilNextChange(nowMs, events = [], opts = {}) {
   }
   return best === null ? 1000 : Math.max(250, Math.min(best, 60_000));
 }
+
+
+// ── 알림 (EV-08)
+//
+// 기본은 오버레이 단계 변화다. OS 알림은 설정에서 켠 사람에게만, 일정마다 한 번만 간다.
+//
+// "지금이 알릴 때인가"는 순수 계산이라 여기 둔다 — 실제로 알림을 띄우는 것은 lifecycle의 일이다.
+
+export const REMIND_CHOICES = [null, 5, 10, 15, 30, 60];
+
+/**
+ * 지금 알려야 할 일정을 고른다.
+ *
+ * @param sent 이미 알린 열쇠들(Set). 같은 일정을 두 번 알리지 않기 위해 호출한 쪽이 들고 있는다.
+ * @returns [{ key, event, leftSec }]
+ */
+export function dueReminders(nowMs, events = [], { defaultMin = null, sent = new Set() } = {}) {
+  // stateAt과 같은 변환을 쓴다 — ms·ISO·Date 아무거나 받는다.
+  // Date.parse만 쓰면 ms 숫자가 NaN이 되어 알림이 통째로 조용해진다.
+  const now = toMs(nowMs);
+  const out = [];
+
+  for (const ev of events) {
+    const min = ev.remindMin ?? defaultMin;
+    if (!min) continue;
+
+    const start = toMs(ev.startsAt);
+    if (!Number.isFinite(start)) continue;
+
+    const leftSec = (start - now) / 1000;
+    // 이미 시작한 일정은 알리지 않는다 — 늦은 알림은 도움이 안 되고 성가시기만 하다
+    if (leftSec <= 0) continue;
+    if (leftSec > min * 60) continue;
+
+    // 회차마다 따로 센다. 반복 일정이 한 번 알렸다고 다음 주에 안 알리면 안 된다.
+    const key = `${ev.id ?? ev.uid ?? ev.title}@${ev.recurrenceId ?? ev.startsAt}`;
+    if (sent.has(key)) continue;
+    out.push({ key, event: ev, leftSec });
+  }
+  return out;
+}
+
+// 알림 문구. 몇 분 남았는지를 제목보다 먼저 말한다.
+export function remindText(ev, leftSec) {
+  const m = Math.max(1, Math.round(leftSec / 60));
+  return { title: `${m}분 뒤 · ${ev.title}`, body: ev.location ? `${ev.location}` : '' };
+}

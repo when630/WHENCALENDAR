@@ -358,7 +358,8 @@ export function createStore(file) {
             AND e.starts_at < ?`
       )
         .all(toISO)
-        .map(toDomain);
+        .map(toDomain)
+        .map((ev) => ({ ...ev, overrides: this.listOverrides(ev.id) }));
 
       return [...plain, ...expand(repeating, fromISO, toISO)].sort(
         (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)
@@ -513,6 +514,77 @@ export function createStore(file) {
       sets.push('updated_at = ?');
       vals.push(now());
       q(`UPDATE event SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+      return true;
+    },
+
+    // ── 반복 일정의 회차 다루기 (EV-07)
+    listOverrides(eventId) {
+      return q('SELECT * FROM override WHERE event_id = ?')
+        .all(eventId)
+        .map((r) => ({
+          recurrenceId: r.recurrence_id,
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          title: r.title,
+          cancelled: !!r.cancelled,
+        }));
+    },
+
+    // 이 회차만 고친다. 규칙은 그대로 두고 예외를 하나 남기는 것이 RFC 5545 방식이다.
+    setOverride(eventId, recurrenceId, patch) {
+      const ev = q('SELECT e.id, c.kind FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?').get(eventId);
+      if (!ev || ev.kind === 'subscription') return false;
+      q(
+        `INSERT INTO override (event_id, recurrence_id, starts_at, ends_at, title, cancelled)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(event_id, recurrence_id) DO UPDATE SET
+           starts_at = COALESCE(excluded.starts_at, override.starts_at),
+           ends_at   = COALESCE(excluded.ends_at,   override.ends_at),
+           title     = COALESCE(excluded.title,     override.title),
+           cancelled = excluded.cancelled`
+      ).run(
+        eventId,
+        recurrenceId,
+        patch.startsAt ?? null,
+        patch.endsAt ?? null,
+        patch.title ?? null,
+        patch.cancelled ? 1 : 0
+      );
+      return true;
+    },
+
+    // 이 회차만 뺀다. EXDATE에 넣는 것과 같다 — 표준으로 내보낼 때 그대로 나간다.
+    excludeOccurrence(eventId, recurrenceId) {
+      const row = q('SELECT e.exdates, c.kind FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?').get(eventId);
+      if (!row || row.kind === 'subscription') return false;
+      const list = row.exdates ? JSON.parse(row.exdates) : [];
+      if (!list.includes(recurrenceId)) list.push(recurrenceId);
+      q('UPDATE event SET exdates = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(list), now(), eventId);
+      return true;
+    },
+
+    /**
+     * 이 회차부터 뒤를 끊는다 (EV-07).
+     *
+     * 규칙에 UNTIL을 박아 **직전 회차까지만** 살린다. 회차들을 하나씩 지우지 않는 이유는,
+     * 그러면 규칙과 실제가 갈라져 `.ics`로 내보낼 때 원래 규칙이 그대로 나가기 때문이다.
+     */
+    truncateSeries(eventId, fromRecurrenceId) {
+      const row = q('SELECT e.rrule, c.kind FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.id = ?').get(eventId);
+      if (!row || row.kind === 'subscription' || !row.rrule) return false;
+
+      const until = new Date(Date.parse(fromRecurrenceId) - 1000);
+      const stamp =
+        `${until.getUTCFullYear()}${String(until.getUTCMonth() + 1).padStart(2, '0')}${String(until.getUTCDate()).padStart(2, '0')}` +
+        `T${String(until.getUTCHours()).padStart(2, '0')}${String(until.getUTCMinutes()).padStart(2, '0')}${String(until.getUTCSeconds()).padStart(2, '0')}Z`;
+
+      const cleaned = String(row.rrule)
+        .replace(/^RRULE:/, '')
+        .split(';')
+        .filter((part) => !/^(UNTIL|COUNT)=/.test(part))
+        .join(';');
+
+      q('UPDATE event SET rrule = ?, updated_at = ? WHERE id = ?').run(`${cleaned};UNTIL=${stamp}`, now(), eventId);
       return true;
     },
 

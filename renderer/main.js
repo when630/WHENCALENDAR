@@ -24,6 +24,10 @@ const el = {
   keys: document.getElementById('keys'),
   toast: document.getElementById('toast'),
   toastMsg: document.getElementById('toastMsg'),
+  choose: document.getElementById('choose'),
+  chooseQ: document.getElementById('chooseQ'),
+  chooseSub: document.getElementById('chooseSub'),
+  chooseOpts: document.getElementById('chooseOpts'),
   searchbar: document.getElementById('searchbar'),
   searchIn: document.getElementById('searchIn'),
   searchCnt: document.getElementById('searchCnt'),
@@ -49,6 +53,8 @@ const state = {
   copyStyle: 0, // 0 목록 · 1 문장 · 2 표
   detail: false, // 오른쪽 상세 패널 (EV-04)
   settings: null,
+  ask: null, // { q, sub, opts, onPick } — 어디까지 바꿀지 묻는 창
+  askCursor: 0,
 };
 
 const COPY_STYLES = [
@@ -157,6 +163,14 @@ function eventRow(ev, now, nextId) {
   const rt = document.createElement('span');
   rt.className = 'rt';
   rt.textContent = live ? `${relTime(e - now)} 뒤 종료` : past ? '끝남' : relTime(s - now);
+
+  if (ev.rrule || ev.edited) {
+    const sub = main.querySelector('.sub') ?? document.createElement('div');
+    if (!sub.className) sub.className = 'sub';
+    const mark = [ev.rrule ? '↻ 반복' : null, ev.edited ? '이 회차만 고침' : null].filter(Boolean).join(' · ');
+    sub.textContent = sub.textContent ? `${sub.textContent} · ${mark}` : mark;
+    if (!sub.parentNode) main.append(sub);
+  }
 
   row.append(clock, bar, main, rt);
   return row;
@@ -759,6 +773,17 @@ function settingRows() {
       sub: '회의가 길어질 때 마무리 신호',
       opts: [{ v: true, label: '켬' }, { v: false, label: '끔' }],
     },
+    {
+      key: 'osNotify',
+      label: 'OS 알림도 띄우기',
+      sub: '기본은 아일랜드가 커지는 것이고, 이건 그 위에 더한다',
+      opts: [{ v: true, label: '켬' }, { v: false, label: '끔' }],
+    },
+    {
+      key: 'remindMin',
+      label: '몇 분 전에',
+      opts: [5, 10, 15, 30, 60].map((m) => ({ v: m, label: `${m}분` })),
+    },
     { grp: '일반' },
     {
       key: 'autoStart',
@@ -883,6 +908,53 @@ async function settingAction(item, dir) {
       toast(r.error ?? '가져오지 못했습니다');
     }
   }
+}
+
+// ── 어디까지 바꿀지 묻기 (EV-07)
+//
+// 반복 일정을 고치거나 지울 때 "이 회차만"인지 "이후 전부"인지 묻지 않으면,
+// 사용자가 의도한 것과 다른 일이 조용히 일어난다.
+const SERIES_OPTS = [
+  { scope: 'one', label: '이 회차만', hint: '나머지는 그대로' },
+  { scope: 'after', label: '이 회차부터 뒤 전부', hint: '앞의 회차는 남는다' },
+  { scope: 'all', label: '전체', hint: '시리즈 통째로' },
+];
+
+function askScope(q, sub, onPick) {
+  state.ask = { q, sub, opts: SERIES_OPTS, onPick };
+  state.askCursor = 0;
+  state.overlay = 'choose';
+  el.scrim.classList.remove('hidden');
+  el.choose.classList.remove('hidden');
+  renderAsk();
+}
+
+function renderAsk() {
+  const a = state.ask;
+  if (!a) return;
+  el.chooseQ.textContent = a.q;
+  el.chooseSub.textContent = a.sub ?? '';
+  el.chooseOpts.replaceChildren(
+    ...a.opts.map((o, i) => {
+      const d = document.createElement('div');
+      d.className = 'opt' + (i === state.askCursor ? ' sel' : '');
+      d.append(document.createTextNode(o.label));
+      const sm = document.createElement('small');
+      sm.textContent = o.hint;
+      d.append(sm);
+      d.onclick = () => pickAsk(i);
+      return d;
+    })
+  );
+}
+
+async function pickAsk(i) {
+  const a = state.ask;
+  if (!a) return;
+  const opt = a.opts[i];
+  closeOverlay();
+  state.ask = null;
+  await a.onPick(opt.scope);
 }
 
 function renderSubs() {
@@ -1135,6 +1207,7 @@ function closeOverlay() {
   el.scrim.classList.add('hidden');
   el.dlg.classList.add('hidden');
   el.keys.classList.add('hidden');
+  el.choose.classList.add('hidden');
   el.dlgIn.blur();
 }
 
@@ -1166,8 +1239,25 @@ async function submitDialog() {
   if (state.dlgMode === 'title') {
     const ev = currentEvent();
     if (!ev) return closeOverlay();
-    const r = await window.cal.update(ev.id, { title: line });
     closeOverlay();
+
+    if (ev.rrule) {
+      askScope(`제목을 "${line}"으로 — 어디까지 바꿀까요?`, '반복하는 일정입니다', async (scope) => {
+        const r = await window.cal.series({
+          id: ev.occurrenceOf ?? ev.id,
+          recurrenceId: ev.recurrenceId ?? ev.startsAt,
+          scope,
+          op: 'edit',
+          patch: { title: line },
+        });
+        if (!r.ok) return toast('고치지 못했습니다');
+        await load();
+        toast('제목을 바꿨습니다');
+      });
+      return;
+    }
+
+    const r = await window.cal.update(ev.id, { title: line });
     if (!r.ok) return toast(r.reason === 'readonly' ? '구독 일정은 고칠 수 없습니다' : '고치지 못했습니다');
     await load();
     toast('제목을 바꿨습니다');
@@ -1337,6 +1427,25 @@ document.addEventListener('keydown', async (e) => {
     } else {
       clearTimeout(parseTimer);
       parseTimer = setTimeout(previewParse, 120);
+    }
+    return;
+  }
+
+  if (state.overlay === 'choose') {
+    e.preventDefault();
+    if (e.key === 'Escape') {
+      state.ask = null;
+      closeOverlay();
+    } else if (e.key === 'ArrowDown' || e.key === 'j') {
+      state.askCursor = Math.min(state.askCursor + 1, (state.ask?.opts.length ?? 1) - 1);
+      renderAsk();
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      state.askCursor = Math.max(0, state.askCursor - 1);
+      renderAsk();
+    } else if (e.key === 'Enter') {
+      await pickAsk(state.askCursor);
+    } else if (['1', '2', '3'].includes(e.key)) {
+      await pickAsk(Number(e.key) - 1);
     }
     return;
   }
@@ -1556,10 +1665,46 @@ document.addEventListener('keydown', async (e) => {
       toast('구독으로 들어온 일정은 지울 수 없습니다');
       return;
     }
+    e.preventDefault();
+
+    // 반복 일정은 어디까지 지울지 묻는다 — 묻지 않으면 시리즈가 통째로 날아간다 (EV-07)
+    if (ev.rrule) {
+      askScope(`"${ev.title}" — 어디까지 지울까요?`, '반복하는 일정입니다', async (scope) => {
+        const r = await window.cal.series({
+          id: ev.occurrenceOf ?? ev.id,
+          recurrenceId: ev.recurrenceId ?? ev.startsAt,
+          scope,
+          op: 'delete',
+        });
+        if (!r.ok) return toast('지우지 못했습니다');
+        if (scope === 'all') state.undo.push(ev.occurrenceOf ?? ev.id);
+        await load();
+        toast(scope === 'all' ? `시리즈를 지웠습니다 · U로 되돌리기` : '지웠습니다');
+      });
+      return;
+    }
+
     await window.cal.remove(ev.id);
     state.undo.push(ev.id);
     await load();
     toast(`지웠습니다 — ${ev.title} · U로 되돌리기`);
+    return;
+  }
+  // 반복 끊기 — 이 회차부터 뒤를 없앤다
+  if (k === 'r' || k === 'R' || k === 'ㄱ') {
+    const ev = currentEvent();
+    if (!ev?.rrule) return;
+    if (ev.calendarKind === 'subscription') return toast('구독 일정은 바꿀 수 없습니다');
+    e.preventDefault();
+    const r = await window.cal.series({
+      id: ev.occurrenceOf ?? ev.id,
+      recurrenceId: ev.recurrenceId ?? ev.startsAt,
+      scope: 'after',
+      op: 'delete',
+    });
+    if (!r.ok) return toast('끊지 못했습니다');
+    await load();
+    toast('이 회차부터 반복을 끊었습니다');
     return;
   }
   if (k === 'u' || k === 'U' || k === 'ㅠ') {

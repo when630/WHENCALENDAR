@@ -128,3 +128,56 @@ test('일정이 없으면 idle이고 틱도 멈춘다', () => {
   assert.equal(stateAt(T(12), []).mode, 'idle');
   assert.equal(msUntilNextChange(T(12), []), null);
 });
+
+// ── 알림 (EV-08)
+import { dueReminders, remindText } from '../main/clock.mjs';
+
+test('알림 시각에 든 일정만 고른다', () => {
+  const list = [ev('곧 회의', T(14), T(15)), ev('나중 회의', T(17), T(18))];
+  const due = dueReminders(T(13, 55), list, { defaultMin: 10 });
+  assert.deepEqual(due.map((d) => d.event.title), ['곧 회의']);
+});
+
+test('아직 이르면 알리지 않는다', () => {
+  assert.equal(dueReminders(T(13, 30), [ev('회의', T(14), T(15))], { defaultMin: 10 }).length, 0);
+});
+
+test('이미 시작한 일정은 알리지 않는다 — 늦은 알림은 성가시기만 하다', () => {
+  assert.equal(dueReminders(T(14, 5), [ev('회의', T(14), T(15))], { defaultMin: 10 }).length, 0);
+});
+
+test('같은 일정을 두 번 알리지 않는다', () => {
+  const list = [ev('회의', T(14), T(15))];
+  const sent = new Set();
+  const first = dueReminders(T(13, 55), list, { defaultMin: 10, sent });
+  assert.equal(first.length, 1);
+  sent.add(first[0].key);
+  assert.equal(dueReminders(T(13, 56), list, { defaultMin: 10, sent }).length, 0);
+});
+
+test('반복 일정은 회차마다 따로 센다', () => {
+  const base = { id: 7, title: '스크럼', startsAt: T(14), recurrenceId: new Date(T(14)).toISOString() };
+  const nextWeek = { ...base, startsAt: T(14) + 7 * 86400000, recurrenceId: new Date(T(14) + 7 * 86400000).toISOString() };
+  const sent = new Set();
+  sent.add(dueReminders(T(13, 55), [base], { defaultMin: 10, sent })[0].key);
+
+  const later = dueReminders(T(13, 55) + 7 * 86400000, [nextWeek], { defaultMin: 10, sent });
+  assert.equal(later.length, 1, '지난주에 알렸다고 이번주를 건너뛰면 안 된다');
+});
+
+test('일정에 따로 정한 값이 기본값을 이긴다', () => {
+  const list = [{ ...ev('중요 회의', T(14), T(15)), remindMin: 30 }];
+  assert.equal(dueReminders(T(13, 40), list, { defaultMin: 5 }).length, 1);
+});
+
+test('알림을 끄면(null) 아무것도 알리지 않는다', () => {
+  assert.equal(dueReminders(T(13, 55), [ev('회의', T(14), T(15))], { defaultMin: null }).length, 0);
+  const off = [{ ...ev('회의', T(14), T(15)), remindMin: null }];
+  assert.equal(dueReminders(T(13, 55), off, { defaultMin: null }).length, 0);
+});
+
+test('알림 문구는 남은 시간을 먼저 말한다', () => {
+  const { title, body } = remindText({ title: '주간 회의', location: '회의실 B' }, 9 * 60 + 30);
+  assert.match(title, /^10분 뒤 · 주간 회의$/);
+  assert.equal(body, '회의실 B');
+});

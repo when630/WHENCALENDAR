@@ -34,6 +34,8 @@ export function expandOne(ev, from, to) {
   if (toMs <= startMs) return [];
 
   const skip = new Set((ev.exdates ?? []).map((d) => MS(d)));
+  // 이 회차만 고치거나 취소한 것 (EV-07). 키는 원래 시작 시각이다.
+  const overrides = new Map((ev.overrides ?? []).map((o) => [MS(o.recurrenceId), o]));
 
   let iterator;
   try {
@@ -56,12 +58,17 @@ export function expandOne(ev, from, to) {
     if (e <= fromMs) continue; // 아직 범위 앞이다
     if (skip.has(s)) continue; // EXDATE
 
+    const ov = overrides.get(s);
+    if (ov?.cancelled) continue; // 이 회차만 취소
+
     out.push({
       ...ev,
-      startsAt: new Date(s).toISOString(),
-      endsAt: ev.endsAt ? new Date(e).toISOString() : null,
+      title: ov?.title ?? ev.title,
+      startsAt: ov?.startsAt ?? new Date(s).toISOString(),
+      endsAt: ov?.endsAt ?? (ev.endsAt ? new Date(e).toISOString() : null),
       occurrenceOf: ev.id ?? ev.uid ?? null,
       recurrenceId: new Date(s).toISOString(),
+      edited: !!ov,
     });
   }
   return out;

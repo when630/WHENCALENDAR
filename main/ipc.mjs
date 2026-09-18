@@ -43,6 +43,7 @@ export function registerIpc(ctx) {
       startsAt: parsed.startsAt,
       endsAt: parsed.endsAt,
       allDay: parsed.allDay ? 1 : 0,
+      rrule: parsed.rrule ?? null,
     });
     ctx.onChanged?.();
     return { ok: true, id, parsed };
@@ -79,6 +80,48 @@ export function registerIpc(ctx) {
     store().softDeleteEvent(id);
     ctx.onChanged?.();
     return { ok: true };
+  });
+
+  /**
+   * 반복 일정을 회차 단위로 다룬다 (EV-07).
+   *
+   * scope — 'one'(이 회차만) · 'after'(이 회차부터 뒤) · 'all'(전부)
+   */
+  ipcMain.handle('cal:series', (_e, { id, recurrenceId, scope, op, patch }) => {
+    const st = store();
+    if (!st?.ok) return { ok: false, reason: 'store' };
+
+    if (op === 'delete') {
+      if (scope === 'one') return { ok: st.excludeOccurrence(id, recurrenceId), reason: 'readonly' };
+      if (scope === 'after') return { ok: st.truncateSeries(id, recurrenceId), reason: 'readonly' };
+      st.softDeleteEvent(id);
+      return { ok: true };
+    }
+
+    if (op === 'edit') {
+      if (scope === 'one') return { ok: st.setOverride(id, recurrenceId, patch), reason: 'readonly' };
+      // 이후 전부는 원래 시리즈를 끊고 남은 것을 새 일정으로 세운다 —
+      // 규칙 하나로는 "어느 날부터 제목이 달라진다"를 표현할 수 없다
+      if (scope === 'after') {
+        const cur = st.getEvent(id);
+        if (!cur) return { ok: false, reason: 'missing' };
+        if (!st.truncateSeries(id, recurrenceId)) return { ok: false, reason: 'readonly' };
+        const dur = cur.endsAt ? Date.parse(cur.endsAt) - Date.parse(cur.startsAt) : 0;
+        const startsAt = patch.startsAt ?? recurrenceId;
+        st.addEvent({
+          calendarId: cur.calendarId,
+          title: patch.title ?? cur.title,
+          startsAt,
+          endsAt: patch.endsAt ?? (dur ? new Date(Date.parse(startsAt) + dur).toISOString() : null),
+          allDay: cur.allDay ? 1 : 0,
+          rrule: cur.rrule ? String(cur.rrule).replace(/;?UNTIL=[^;]+/, '') : null,
+        });
+        return { ok: true };
+      }
+      return { ok: st.updateEvent(id, patch), reason: 'readonly' };
+    }
+
+    return { ok: false, reason: 'unknown-op' };
   });
 
   ipcMain.handle('cal:restore', (_e, id) => {
@@ -194,6 +237,8 @@ export function registerIpc(ctx) {
       revealFullSec: st.getSetting('revealFullSec', 600),
       endSoonEnabled: st.getSetting('endSoonEnabled', true),
       ringSize: st.getSetting('ringSize', 20),
+      osNotify: st.getSetting('osNotify', false),
+      remindMin: st.getSetting('remindMin', 10),
       autoStart: app.getLoginItemSettings().openAtLogin,
       dataDir: path.dirname(st.file),
     };

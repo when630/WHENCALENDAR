@@ -2,7 +2,7 @@
 //
 // 틱은 1초 고정이 아니다. clock.msUntilNextChange가 "다음에 화면이 바뀌는 시각"을 알려 주므로
 // 접혀 있을 때는 오래 자고 펼쳐졌을 때만 매초 깨운다 — 상주 앱이라 안 깨는 것이 이득이다.
-import { app, Tray, Menu, nativeImage, globalShortcut, powerMonitor } from 'electron';
+import { app, Tray, Menu, nativeImage, globalShortcut, powerMonitor, Notification } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ import { createSettings } from './settings.mjs';
 import { createOverlay } from './overlay.mjs';
 import { createMainWindow } from './window.mjs';
 import { registerIpc } from './ipc.mjs';
-import { stateAt, msUntilNextChange, DEFAULTS } from './clock.mjs';
+import { stateAt, msUntilNextChange, DEFAULTS, dueReminders, remindText } from './clock.mjs';
 import { syncAll, SYNC_INTERVAL_MS } from './sync.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -124,10 +124,28 @@ export function bootstrap() {
   }
 
   const ctx = { store: null, settings: null, overlay: null, mainWindow: null, tray: null, timer: null, syncTimer: null };
+  const sentReminders = new Set();
 
   function loadEvents() {
     const [from, to] = dayRange();
     return ctx.store.ok ? ctx.store.listBetween(from, to) : [];
+  }
+
+  // OS 알림은 켠 사람에게만, 일정마다 한 번만 (EV-08).
+  // 기본은 오버레이 단계 변화이므로 이것이 꺼져 있어도 놓치지 않는다.
+  function fireReminders(events) {
+    if (!ctx.store?.ok) return;
+    if (!ctx.store.getSetting('osNotify', false)) return;
+    if (!Notification.isSupported()) return;
+
+    const defaultMin = ctx.store.getSetting('remindMin', 10);
+    for (const due of dueReminders(Date.now(), events, { defaultMin, sent: sentReminders })) {
+      sentReminders.add(due.key);
+      const { title, body } = remindText(due.event, due.leftSec);
+      new Notification({ title, body, silent: false }).show();
+    }
+    // 하루치만 들고 있으면 된다 — 무한히 자라지 않게 가끔 비운다
+    if (sentReminders.size > 500) sentReminders.clear();
   }
 
   function tick() {
@@ -136,6 +154,7 @@ export function bootstrap() {
     const opts = overlayOptions(ctx.store);
     const st = stateAt(Date.now(), events, opts);
     ctx.overlay.push(toPayload(st, ctx.store));
+    fireReminders(events);
 
     // 오늘 일정이 없어도 자정에는 다시 봐야 한다
     const next = msUntilNextChange(Date.now(), events, opts) ?? 60_000;
