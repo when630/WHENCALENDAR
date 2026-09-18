@@ -28,7 +28,13 @@ jobs:
       - run: npm ci
       # 테스트는 전부 순수 모듈이라 화면이 없어도 돈다 — Electron을 import하는 코드는
       # 테스트 대상에서 빠져 있고, 그것이 update-text.mjs를 따로 떼어 둔 이유다.
+      #
+      # TZ를 박는다. 구독 일정의 시각 변환(SUB-08)은 "05:00Z는 한국에서 14:00"을 검증하므로
+      # 러너 기본값인 UTC에서는 반드시 깨진다 — 앱이 한국 시간대를 쓰는 사람의 PC에서
+      # 도는 것과 같은 조건으로 돌려야 한다.
       - run: npm test
+        env:
+          TZ: Asia/Seoul
 
   build:
     needs: test
