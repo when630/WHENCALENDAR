@@ -27,6 +27,16 @@ contextBridge.exposeInMainWorld('cal', {
   formatSlots: (payload) => ipcRenderer.invoke('find:format', payload),
 });
 
+// 설정과 데이터
+contextBridge.exposeInMainWorld('app', {
+  settings: () => ipcRenderer.invoke('settings:get'),
+  set: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
+  openDataDir: () => ipcRenderer.invoke('app:openDataDir'),
+  exportJson: () => ipcRenderer.invoke('data:export'),
+  exportIcs: () => ipcRenderer.invoke('data:exportIcs'),
+  importJson: () => ipcRenderer.invoke('data:import'),
+});
+
 // 구독 — .ics 주소를 붙이면 일정이 알아서 들어온다
 contextBridge.exposeInMainWorld('subs', {
   list: () => ipcRenderer.invoke('sub:list'),

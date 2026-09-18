@@ -93,3 +93,75 @@ export function toIso(t) {
 export function isCancelled(e) {
   return (e.status ?? '').toUpperCase() === 'CANCELLED';
 }
+
+
+// ── 내보내기 (DATA-03)
+//
+// 표준 형식이라 다른 캘린더가 읽는다. 받아온 구독 일정은 내보내지 않는다 — 원본이 따로 있다.
+
+const pad = (n) => String(n).padStart(2, '0');
+
+// 로컬 시각을 UTC 기본형으로. 종일 일정은 DATE(시각 없음)로 낸다.
+function icsTime(iso, allDay) {
+  const d = new Date(iso);
+  if (allDay) return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const u = new Date(d.getTime());
+  return (
+    `${u.getUTCFullYear()}${pad(u.getUTCMonth() + 1)}${pad(u.getUTCDate())}` +
+    `T${pad(u.getUTCHours())}${pad(u.getUTCMinutes())}${pad(u.getUTCSeconds())}Z`
+  );
+}
+
+// RFC 5545는 쉼표·세미콜론·역슬래시·줄바꿈을 이스케이프하라고 한다.
+function esc(v) {
+  return String(v ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+}
+
+// 75옥텟을 넘는 줄은 접어야 한다. 안 접으면 읽는 쪽이 줄을 잘라 버린다.
+function fold(line) {
+  if (line.length <= 73) return line;
+  const out = [line.slice(0, 73)];
+  let rest = line.slice(73);
+  while (rest.length > 72) {
+    out.push(' ' + rest.slice(0, 72));
+    rest = rest.slice(72);
+  }
+  if (rest) out.push(' ' + rest);
+  return out.join('\r\n');
+}
+
+export function buildIcs(events, { name = 'WHENCALENDAR' } = {}) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//when630//WHENCALENDAR//KO',
+    'CALSCALE:GREGORIAN',
+    `X-WR-CALNAME:${esc(name)}`,
+  ];
+  const stamp = icsTime(new Date().toISOString(), false);
+
+  for (const e of events ?? []) {
+    if (!e?.startsAt) continue;
+    const uid = e.uid || `${e.id ?? Math.random().toString(36).slice(2)}@whencalendar`;
+    lines.push('BEGIN:VEVENT', `UID:${esc(uid)}`, `DTSTAMP:${stamp}`);
+    if (e.allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${icsTime(e.startsAt, true)}`);
+      if (e.endsAt) lines.push(`DTEND;VALUE=DATE:${icsTime(e.endsAt, true)}`);
+    } else {
+      lines.push(`DTSTART:${icsTime(e.startsAt, false)}`);
+      if (e.endsAt) lines.push(`DTEND:${icsTime(e.endsAt, false)}`);
+    }
+    lines.push(`SUMMARY:${esc(e.title ?? '')}`);
+    if (e.location) lines.push(`LOCATION:${esc(e.location)}`);
+    if (e.note) lines.push(`DESCRIPTION:${esc(e.note)}`);
+    if (e.rrule) lines.push(`RRULE:${String(e.rrule).replace(/^RRULE:/, '')}`);
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.map(fold).join('\r\n') + '\r\n';
+}

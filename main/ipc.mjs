@@ -1,10 +1,13 @@
 // main/ipc.mjs — 렌더러가 저장소에 닿는 유일한 통로(03_기술_스펙 §7).
 //
 // 렌더러는 SQL도 Date 계산도 하지 않는다. 여기서 도메인 모양으로 주고받는다.
-import { ipcMain } from 'electron';
+import { app, ipcMain, dialog, shell } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseLine, describe } from './parse.mjs';
 import { syncCalendar, syncAll } from './sync.mjs';
 import { findFreeSlots, formatSlots } from './free.mjs';
+import { buildIcs } from './ics.mjs';
 
 // 렌더러가 준 날짜 범위를 ISO로 바꾼다. 하루 경계는 로컬 자정이다 —
 // UTC로 자르면 한국에서 오전 9시 이전 일정이 전날로 밀린다.
@@ -180,6 +183,105 @@ export function registerIpc(ctx) {
     store().deleteCalendar(id);
     ctx.onChanged?.();
     return { ok: true };
+  });
+
+  // ── 설정·데이터
+  ipcMain.handle('settings:get', () => {
+    const st = store();
+    if (!st?.ok) return null;
+    return {
+      revealStartSec: st.getSetting('revealStartSec', 1800),
+      revealFullSec: st.getSetting('revealFullSec', 600),
+      endSoonEnabled: st.getSetting('endSoonEnabled', true),
+      ringSize: st.getSetting('ringSize', 20),
+      autoStart: app.getLoginItemSettings().openAtLogin,
+      dataDir: path.dirname(st.file),
+    };
+  });
+
+  ipcMain.handle('settings:set', (_e, { key, value }) => {
+    if (key === 'autoStart') {
+      // 개발 실행에 자동 시작을 걸면 설치본과 싸운다 — 패키징된 앱에서만 건다
+      if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!value });
+      return { ok: app.isPackaged, packaged: app.isPackaged };
+    }
+    store()?.setSetting(key, value);
+    ctx.onChanged?.();
+    return { ok: true };
+  });
+
+  ipcMain.handle('app:openDataDir', () => {
+    const st = store();
+    if (st?.file) shell.openPath(path.dirname(st.file));
+    return { ok: true };
+  });
+
+  ipcMain.handle('data:export', async () => {
+    const st = store();
+    if (!st?.ok) return { ok: false, error: '저장소에 닿지 못했습니다.' };
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '내보내기',
+      defaultPath: `whencalendar-${stamp}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(st.exportAll(), null, 2), 'utf8');
+      return { ok: true, filePath };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
+  ipcMain.handle('data:exportIcs', async () => {
+    const st = store();
+    if (!st?.ok) return { ok: false, error: '저장소에 닿지 못했습니다.' };
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '.ics로 내보내기',
+      defaultPath: `whencalendar-${stamp}.ics`,
+      filters: [{ name: 'iCalendar', extensions: ['ics'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    try {
+      const dump = st.exportAll();
+      fs.writeFileSync(filePath, buildIcs(dump.events, { name: 'WHENCALENDAR' }), 'utf8');
+      return { ok: true, filePath, count: dump.events.length };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
+  ipcMain.handle('data:import', async () => {
+    const st = store();
+    if (!st?.ok) return { ok: false, error: '저장소에 닿지 못했습니다.' };
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: '가져오기 — 지금 데이터를 갈아끼웁니다',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (canceled || !filePaths?.length) return { ok: false, canceled: true };
+
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+    } catch (err) {
+      return { ok: false, error: '파일을 읽지 못했습니다 — JSON이 아닙니다.' };
+    }
+
+    // 갈아끼우기 전에 지금 상태를 옆에 남긴다 (DATA-02)
+    let backup = null;
+    try {
+      backup = path.join(path.dirname(st.file), `before-import-${Date.now()}.json`);
+      fs.writeFileSync(backup, JSON.stringify(st.exportAll(), null, 2), 'utf8');
+    } catch {
+      backup = null;
+    }
+
+    const res = st.importAll(data);
+    if (res.ok) ctx.onChanged?.();
+    return { ...res, backup };
   });
 
   // 프레임리스라 최소화·닫기도 우리가 맡는다. 닫기는 숨기기다 — 앱은 트레이에 남는다.

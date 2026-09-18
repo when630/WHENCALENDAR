@@ -1,7 +1,7 @@
 // .ics 읽기와 반복 펼치기 (SUB-01·SUB-07·SUB-08)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseIcs, isCancelled } from '../main/ics.mjs';
+import { parseIcs, isCancelled, buildIcs } from '../main/ics.mjs';
 import { expand, expandOne, overlaps } from '../main/recur.mjs';
 
 const wrap = (body) =>
@@ -233,4 +233,43 @@ test('.ics에서 읽은 반복 일정이 그대로 펼쳐진다 — 경계', () 
   const out = expandOne(e, new Date(2026, 8, 1).toISOString(), new Date(2026, 10, 1).toISOString());
   assert.equal(out.length, 3, '파서가 낸 모양을 펼치기가 그대로 먹어야 한다');
   assert.equal(out[0].title, '주간 회의');
+});
+
+// ── 내보내기 (DATA-03)
+
+test('내보낸 .ics를 다시 읽으면 같은 일정이다 — 왕복', () => {
+  const events = [
+    { id: 1, title: '주간 회의', startsAt: new Date(2026, 8, 17, 14).toISOString(), endsAt: new Date(2026, 8, 17, 15).toISOString() },
+    { id: 2, title: '휴가', startsAt: new Date(2026, 8, 21).toISOString(), endsAt: new Date(2026, 8, 25).toISOString(), allDay: true },
+  ];
+  const text = buildIcs(events);
+  const back = parseIcs(text);
+
+  assert.equal(back.ok, true);
+  assert.equal(back.events.length, 2);
+  assert.equal(back.events[0].title, '주간 회의');
+  assert.equal(new Date(back.events[0].startsAt).getHours(), 14);
+  assert.equal(back.events[1].allDay, true);
+});
+
+test('쉼표·세미콜론이 든 제목도 깨지지 않는다', () => {
+  const text = buildIcs([{ id: 1, title: '회의; 기획, 디자인', startsAt: new Date(2026, 8, 17, 10).toISOString() }]);
+  // 정규식에 백슬래시를 넣으면 이스케이프로 먹히니 문자열로 본다
+  assert.ok(text.includes(String.raw`SUMMARY:회의\; 기획\, 디자인`), text);
+  assert.equal(parseIcs(text).events[0].title, '회의; 기획, 디자인', '읽으면 원래대로');
+});
+
+test('긴 제목은 줄을 접는다 (RFC 5545)', () => {
+  const long = '아주 긴 회의 제목'.repeat(12);
+  const text = buildIcs([{ id: 1, title: long, startsAt: new Date(2026, 8, 17, 10).toISOString() }]);
+  for (const line of text.split('\r\n')) assert.ok(line.length <= 75, `${line.length}자 줄이 있다`);
+  assert.equal(parseIcs(text).events[0].title, long, '접어도 읽으면 원래대로');
+});
+
+test('반복 규칙도 함께 나간다', () => {
+  const text = buildIcs([
+    { id: 1, title: '스크럼', startsAt: new Date(2026, 8, 17, 9, 30).toISOString(), rrule: 'FREQ=WEEKLY;COUNT=3' },
+  ]);
+  assert.match(text, /RRULE:FREQ=WEEKLY;COUNT=3/);
+  assert.match(parseIcs(text).events[0].rrule, /FREQ=WEEKLY/);
 });

@@ -7,6 +7,7 @@ const TABS = [
   { key: 'week', label: '주' },
   { key: 'month', label: '월' },
   { key: 'subs', label: '구독' },
+  { key: 'set', label: '설정' },
 ];
 const CAL_COLORS = [1, 2, 3, 4, 5, 6];
 
@@ -47,6 +48,7 @@ const state = {
   findOpts: { minMinutes: 60, anyTime: false },
   copyStyle: 0, // 0 목록 · 1 문장 · 2 표
   detail: false, // 오른쪽 상세 패널 (EV-04)
+  settings: null,
 };
 
 const COPY_STYLES = [
@@ -727,6 +729,162 @@ function spacer(px) {
   return d;
 }
 
+// ── 설정 (OVL-12·PLAT-03·DATA)
+//
+// 값을 바꾸면 위 미리보기가 같이 바뀐다. "펼치기 30분 전"이 무슨 뜻인지는 글로 설명할 수 없다.
+
+const REVEAL_START = [60, 45, 30, 20, 10];
+const REVEAL_FULL = [20, 15, 10, 5, 2];
+const RING_SIZES = [16, 20, 26];
+
+function settingRows() {
+  const st = state.settings ?? {};
+  return [
+    { grp: '오버레이' },
+    {
+      key: 'revealStartSec',
+      label: '펼치기 시작',
+      sub: '이 시간부터 이름과 남은 시간이 나온다',
+      opts: REVEAL_START.map((m) => ({ v: m * 60, label: `${m}분 전` })),
+    },
+    {
+      key: 'revealFullSec',
+      label: '완전히 펼침',
+      opts: REVEAL_FULL.map((m) => ({ v: m * 60, label: `${m}분 전` })),
+    },
+    { key: 'ringSize', label: '링 크기', opts: RING_SIZES.map((n) => ({ v: n, label: String(n) })) },
+    {
+      key: 'endSoonEnabled',
+      label: '끝나기 5분 전 알리기',
+      sub: '회의가 길어질 때 마무리 신호',
+      opts: [{ v: true, label: '켬' }, { v: false, label: '끔' }],
+    },
+    { grp: '일반' },
+    {
+      key: 'autoStart',
+      label: '로그인할 때 자동 시작',
+      sub: '설치본에서만 동작합니다',
+      opts: [{ v: true, label: '켬' }, { v: false, label: '끔' }],
+    },
+    { action: 'openDir', label: '데이터 폴더', sub: st.dataDir ?? '', val: '열기' },
+    { grp: '데이터' },
+    { action: 'exportJson', label: '전체 내보내기', sub: 'JSON 한 파일', val: 'Enter' },
+    { action: 'exportIcs', label: '.ics로 내보내기', sub: '다른 캘린더가 읽는 표준 형식', val: 'Enter' },
+    { action: 'importJson', label: '가져오기', sub: '지금 데이터를 갈아끼웁니다 · 직전 상태는 자동 백업', val: 'Enter' },
+  ];
+}
+
+const settingItems = () => settingRows().filter((r) => !r.grp);
+
+function renderSettings() {
+  el.dateLabel.textContent = '';
+  const st = state.settings ?? {};
+  const wrap = document.createElement('div');
+  wrap.className = 'set';
+
+  // 미리보기 — 지금 설정대로 그린 아일랜드
+  const prev = document.createElement('div');
+  prev.className = 'ovprev';
+  const isle = document.createElement('span');
+  isle.className = 'isle';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(st.ringSize ?? 20));
+  svg.setAttribute('height', String(st.ringSize ?? 20));
+  svg.innerHTML =
+    '<circle cx="12" cy="12" r="9" fill="none" stroke="rgba(140,148,160,.26)" stroke-width="2.6"/>' +
+    '<circle cx="12" cy="12" r="9" fill="none" stroke="#e0af68" stroke-width="2.6" stroke-linecap="round" ' +
+    'stroke-dasharray="56.5" stroke-dashoffset="34" transform="rotate(-90 12 12)"/>';
+  const t1 = document.createElement('span');
+  t1.className = 'rt';
+  t1.textContent = '1:1 미팅';
+  const t2 = document.createElement('span');
+  t2.className = 'rl';
+  t2.textContent = '18분 남음';
+  isle.append(svg, t1, t2);
+  prev.append(isle);
+  wrap.append(prev);
+
+  let idx = -1;
+  for (const r of settingRows()) {
+    if (r.grp) {
+      const g = document.createElement('div');
+      g.className = 'grp';
+      g.textContent = r.grp;
+      wrap.append(g);
+      continue;
+    }
+    idx++;
+    const row = document.createElement('div');
+    row.className = 'row' + (idx === state.cursor ? ' sel' : '');
+
+    const lb = document.createElement('span');
+    lb.className = 'lb';
+    lb.append(document.createTextNode(r.label));
+    if (r.sub) {
+      const sm = document.createElement('small');
+      sm.textContent = r.sub;
+      lb.append(sm);
+    }
+    row.append(lb);
+
+    if (r.opts) {
+      const cur = st[r.key];
+      const active = r.opts.findIndex((o) => o.v === cur);
+      row.append(seg(r.opts.map((o) => o.label), active));
+    } else {
+      const v = document.createElement('span');
+      v.className = 'val';
+      v.textContent = r.val ?? '';
+      row.append(v);
+    }
+    wrap.append(row);
+  }
+
+  el.body.replaceChildren(wrap);
+}
+
+async function loadSettings() {
+  state.settings = await window.app.settings();
+  renderSettings();
+}
+
+async function settingAction(item, dir) {
+  if (item.opts) {
+    const cur = state.settings[item.key];
+    const i = item.opts.findIndex((o) => o.v === cur);
+    const next = item.opts[(i + (dir || 1) + item.opts.length) % item.opts.length];
+    const r = await window.app.set(item.key, next.v);
+    if (item.key === 'autoStart' && r && r.packaged === false) {
+      toast('개발 실행에서는 자동 시작을 걸지 않습니다');
+    }
+    await loadSettings();
+    return;
+  }
+  if (item.action === 'openDir') return void window.app.openDataDir();
+  if (item.action === 'exportJson') {
+    const r = await window.app.exportJson();
+    if (r.ok) toast('내보냈습니다');
+    else if (!r.canceled) toast(r.error ?? '내보내지 못했습니다');
+    return;
+  }
+  if (item.action === 'exportIcs') {
+    const r = await window.app.exportIcs();
+    if (r.ok) toast(`.ics로 내보냈습니다 — ${r.count}건`);
+    else if (!r.canceled) toast(r.error ?? '내보내지 못했습니다');
+    return;
+  }
+  if (item.action === 'importJson') {
+    const r = await window.app.importJson();
+    if (r.ok) {
+      await loadSettings();
+      toast(`가져왔습니다 — 일정 ${r.events}건${r.backup ? ' · 직전 상태는 백업됨' : ''}`);
+    } else if (!r.canceled) {
+      toast(r.error ?? '가져오지 못했습니다');
+    }
+  }
+}
+
 function renderSubs() {
   el.dateLabel.textContent = '';
   const frag = document.createDocumentFragment();
@@ -887,6 +1045,20 @@ async function load() {
 
   if (state.view === 'find') return renderFind();
   if (state.view === 'search') return renderSearch(now);
+
+  if (state.tab === 'set') {
+    const today = await window.cal.list({ day: new Date().toISOString(), days: 1 });
+    const week = await window.cal.list({ day: mondayOf(new Date()).toISOString(), days: 7 });
+    state.subs = await window.subs.list();
+    renderTabs({
+      today: today.events?.length ?? 0,
+      week: week.events?.length ?? 0,
+      subs: state.subs.filter((c) => c.kind === 'subscription').length,
+    });
+    if (state.cursor >= settingItems().length) state.cursor = 0;
+    await loadSettings();
+    return;
+  }
 
   state.subs = await window.subs.list();
   if (state.tab === 'subs') {
@@ -1280,6 +1452,25 @@ document.addEventListener('keydown', async (e) => {
     await load();
     return;
   }
+  // ── 설정 탭에서만 듣는 키
+  if (state.tab === 'set') {
+    const items = settingItems();
+    const item = items[state.cursor];
+    if (k === 'j' || k === 'ArrowDown' || k === 'k' || k === 'ArrowUp') {
+      e.preventDefault();
+      const d = k === 'j' || k === 'ArrowDown' ? 1 : -1;
+      state.cursor = Math.max(0, Math.min(state.cursor + d, items.length - 1));
+      renderSettings();
+      return;
+    }
+    if (k === 'ArrowRight' || k === 'ArrowLeft' || k === ' ' || k === 'Enter') {
+      e.preventDefault();
+      if (item) await settingAction(item, k === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
+    return;
+  }
+
   // ── 구독 탭에서만 듣는 키
   if (state.tab === 'subs') {
     const cal = selectedSub();
@@ -1388,7 +1579,8 @@ function rerender() {
   const now = new Date();
   if (state.view === 'search') return renderSearch(now);
   if (state.view === 'find') return renderFind();
-  if (state.tab === 'subs') renderSubs();
+  if (state.tab === 'set') renderSettings();
+  else if (state.tab === 'subs') renderSubs();
   else if (state.tab === 'month') renderMonth(now);
   else if (state.tab === 'today') renderToday(now);
   else renderWeek(now);
@@ -1406,6 +1598,15 @@ el.body.addEventListener('click', async (e) => {
       if (state.picked.has(i)) state.picked.delete(i);
       else state.picked.add(i);
       await refreshCopyPreview();
+    }
+    return;
+  }
+  const setRow = e.target.closest('.set .row');
+  if (setRow && state.tab === 'set') {
+    const i = [...el.body.querySelectorAll('.set .row')].indexOf(setRow);
+    if (i >= 0) {
+      state.cursor = i;
+      await settingAction(settingItems()[i], 1);
     }
     return;
   }

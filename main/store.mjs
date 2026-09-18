@@ -188,6 +188,24 @@ function quarantine(file) {
 
 const now = () => new Date().toISOString();
 
+// 내보내기 형식 버전. 읽을 수 없는 파일로 기존 데이터를 지우는 일이 없어야 한다.
+export const EXPORT_VERSION = 1;
+
+export function validateExport(data) {
+  if (!data || typeof data !== 'object') return '읽을 수 있는 JSON이 아닙니다.';
+  if (data.app !== 'whencalendar') return 'WHENCALENDAR가 내보낸 파일이 아닙니다.';
+  if (!Number.isInteger(data.version)) return '형식 버전이 없습니다.';
+  if (data.version > EXPORT_VERSION) {
+    return `더 새로운 버전(v${data.version})의 파일입니다. 앱을 먼저 업데이트해 주세요.`;
+  }
+  if (!Array.isArray(data.calendars) || !Array.isArray(data.events)) return '달력·일정 목록이 없습니다.';
+  for (const e of data.events) {
+    if (!e || typeof e.title !== 'string' || !e.startsAt) return '일정 하나가 제목이나 시작 시각을 잃었습니다.';
+    if (!Number.isFinite(Date.parse(e.startsAt))) return `읽을 수 없는 시각이 있습니다: ${e.startsAt}`;
+  }
+  return null;
+}
+
 // 밖으로 나가는 일정의 모양. SQL 컬럼명은 여기서 끝난다(D-15).
 const EVENT_COLS = `e.id, e.title, e.starts_at, e.ends_at, e.all_day, e.location, e.note,
                     e.rrule, e.exdates, e.uid,
@@ -510,6 +528,108 @@ export function createStore(file) {
 
     countEvents() {
       return q('SELECT count(*) AS n FROM event WHERE deleted_at IS NULL').get().n;
+    },
+
+    // ── 내보내기·가져오기 (DATA)
+    //
+    // 사람이 읽을 수 있는 JSON 하나로 낸다. 구독은 주소와 색만 담고 받아온 일정은 담지 않는다 —
+    // 어차피 다음 갱신에 원격에서 다시 온다. 담으면 파일만 커지고 원본과 어긋난다.
+    exportAll() {
+      const cals = q('SELECT * FROM calendar ORDER BY id').all();
+      const local = new Set(cals.filter((c) => c.kind === 'local').map((c) => c.id));
+      const events = q('SELECT * FROM event WHERE deleted_at IS NULL ORDER BY id')
+        .all()
+        .filter((e) => local.has(e.calendar_id));
+      const settings = Object.fromEntries(q('SELECT key, value FROM setting').all().map((r) => [r.key, JSON.parse(r.value)]));
+      return {
+        app: 'whencalendar',
+        version: EXPORT_VERSION,
+        exportedAt: now(),
+        calendars: cals.map((c) => ({
+          kind: c.kind,
+          name: c.name,
+          url: c.url,
+          color: c.color,
+          enabled: !!c.enabled,
+        })),
+        events: events.map((e) => ({
+          calendarName: cals.find((c) => c.id === e.calendar_id)?.name ?? '이 PC',
+          title: e.title,
+          startsAt: e.starts_at,
+          endsAt: e.ends_at,
+          allDay: !!e.all_day,
+          rrule: e.rrule,
+          exdates: e.exdates ? JSON.parse(e.exdates) : null,
+          location: e.location,
+          note: e.note,
+          remindMin: e.remind_min,
+        })),
+        settings,
+      };
+    },
+
+    /**
+     * 내보낸 JSON으로 되돌린다 (DATA-02).
+     *
+     * **지금 데이터를 갈아끼운다.** 그래서 부르기 전에 호출한 쪽이 백업을 남긴다.
+     * 형식이 아니면 아무것도 건드리지 않고 돌아간다 — 반쯤 들어간 상태가 제일 나쁘다.
+     */
+    importAll(data) {
+      const bad = validateExport(data);
+      if (bad) return { ok: false, error: bad };
+
+      return withTransaction(db, () => {
+        q('DELETE FROM override').run();
+        q('DELETE FROM event').run();
+        q('DELETE FROM calendar').run();
+        q('DELETE FROM setting').run();
+
+        const byName = new Map();
+        for (const c of data.calendars ?? []) {
+          const info = q(
+            'INSERT INTO calendar (kind, name, url, color, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).run(c.kind, c.name, c.url ?? null, c.color ?? 1, c.enabled === false ? 0 : 1, now());
+          byName.set(c.name, Number(info.lastInsertRowid));
+        }
+        // 직접 등록용 달력이 없으면 만든다 — 가져온 일정이 갈 곳이 필요하다
+        let localId = [...byName.entries()].find(([, id]) =>
+          (data.calendars ?? []).find((c) => c.name === [...byName.keys()].find((k) => byName.get(k) === id))?.kind === 'local'
+        )?.[1];
+        if (!localId) {
+          const info = q('INSERT INTO calendar (kind, name, color, created_at) VALUES (?, ?, ?, ?)').run(
+            'local', '이 PC', 1, now()
+          );
+          localId = Number(info.lastInsertRowid);
+        }
+
+        let added = 0;
+        for (const e of data.events ?? []) {
+          const t = now();
+          q(
+            `INSERT INTO event (calendar_id, title, starts_at, ends_at, all_day, rrule, exdates, location, note, remind_min, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            byName.get(e.calendarName) ?? localId,
+            e.title,
+            e.startsAt,
+            e.endsAt ?? null,
+            e.allDay ? 1 : 0,
+            e.rrule ?? null,
+            e.exdates ? JSON.stringify(e.exdates) : null,
+            e.location ?? null,
+            e.note ?? null,
+            e.remindMin ?? null,
+            t,
+            t
+          );
+          added++;
+        }
+
+        for (const [k, v] of Object.entries(data.settings ?? {})) {
+          q('INSERT INTO setting (key, value) VALUES (?, ?)').run(k, JSON.stringify(v));
+        }
+        return { ok: true, calendars: (data.calendars ?? []).length, events: added };
+      });
     },
 
     // ── 설정 (창 위치 같은 UI 상태는 settings.json, 여기는 앱 동작 값)
