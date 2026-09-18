@@ -181,3 +181,49 @@ test('알림 문구는 남은 시간을 먼저 말한다', () => {
   assert.match(title, /^10분 뒤 · 주간 회의$/);
   assert.equal(body, '회의실 B');
 });
+
+// ── 종일 일정은 오버레이 계산에서 빠진다 (D-29)
+//
+// 자정부터 자정까지 이어지는 탓에, 세면 하루 종일 '진행 중'으로 잡혀 정작 다가오는 회의의
+// 단계 변화(OVL-05)를 덮어 버린다. 실제로 그랬다.
+const allDay = (title, day = 17) => ({
+  id: title,
+  title,
+  startsAt: new Date(2026, 8, day).toISOString(),
+  endsAt: new Date(2026, 8, day + 1).toISOString(),
+  allDay: true,
+});
+
+test('종일 일정이 있어도 다음 회의의 단계가 그대로 흐른다 (OVL-05)', () => {
+  const list = [allDay('워크숍'), ev('주간 회의', T(14), T(15))];
+
+  const far = stateAt(T(9), list);
+  assert.equal(far.mode, 'upcoming');
+  assert.equal(far.event.title, '주간 회의');
+
+  // 15분 전 — 종일을 셌다면 여기서 'live'로 덮여 펼쳐지지도 않았다
+  const near = stateAt(T(13, 45), list);
+  assert.equal(near.mode, 'upcoming');
+  assert.equal(near.tier, 'aware');
+  assert.ok(near.reveal > 0);
+
+  // 회의 중에는 회의가 잡힌다 — 먼저 끝나는 것이 종일이어서는 안 된다
+  const inMeeting = stateAt(T(14, 30), list);
+  assert.equal(inMeeting.mode, 'during');
+  assert.equal(inMeeting.event.title, '주간 회의');
+});
+
+test('종일 일정만 있는 날은 조용하다 (OVL-10)', () => {
+  const st = stateAt(T(11), [allDay('워크숍')]);
+  assert.equal(st.mode, 'idle');
+  assert.equal(st.event, null);
+  assert.equal(st.rest.length, 0);
+});
+
+test('종일 일정은 알림을 만들지 않는다 (EV-08)', () => {
+  // 자정 기준이라 "10분 전"이 전날 23:50에 울린다
+  const eve = new Date(2026, 8, 17, 23, 50).getTime();
+  assert.equal(dueReminders(eve, [allDay('워크숍', 18)], { defaultMin: 10 }).length, 0);
+  // 시각이 있는 일정은 그대로 알린다
+  assert.equal(dueReminders(T(13, 55), [ev('회의', T(14), T(15))], { defaultMin: 10 }).length, 1);
+});

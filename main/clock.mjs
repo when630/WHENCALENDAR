@@ -58,7 +58,11 @@ export function stateAt(nowMs, events = [], opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const now = toMs(nowMs);
 
+  // 종일 일정은 세지 않는다. 시각이 없으니 "몇 분 남았다"가 성립하지 않고, 자정부터 자정까지
+  // 이어지는 탓에 **하루 종일 '진행 중'으로 잡혀 정작 다가오는 회의의 카운트다운을 덮어 버린다**
+  // — 종일 일정이 하루만 있어도 OVL-05가 통째로 죽는다. 종일은 본체 창에서 본다(D-29).
   const list = events
+    .filter((e) => !e.allDay)
     .map((e) => ({ ...e, _s: toMs(e.startsAt), _e: toMs(e.endsAt ?? e.startsAt) }))
     .filter((e) => Number.isFinite(e._s))
     .sort((a, b) => a._s - b._s);
@@ -164,6 +168,9 @@ export function dueReminders(nowMs, events = [], { defaultMin = null, sent = new
   const out = [];
 
   for (const ev of events) {
+    // 종일 일정은 알리지 않는다 — 자정 기준이라 "10분 전"이 전날 23:50에 울린다(D-29)
+    if (ev.allDay) continue;
+
     const min = ev.remindMin ?? defaultMin;
     if (!min) continue;
 
