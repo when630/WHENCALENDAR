@@ -1,14 +1,15 @@
 // main/update.mjs — GitHub Releases를 보고 새 버전을 알린다 (REL-03).
 //
-// WHENNOTE main/update.mjs를 Windows 전용으로 줄여 가져왔다. v1은 Windows만 낸다 —
-// macOS는 미서명 자동 업데이트가 Squirrel.Mac에 막혀 경로 자체가 없고, 그 분기는
-// 실제로 macOS를 낼 때 되살린다.
-//
 // **사용자가 모르는 채로 바뀌지 않는다.** 내려받은 뒤에도 바로 재시작하지 않고 다음에
 // 앱을 끌 때 설치한다. 상주 앱이 쓰는 도중에 스스로 사라지면, 그 순간 놓친 일정이
 // 이 앱이 막으려던 바로 그 일이다.
+//
+// macOS는 여기서 갈라진다 — Squirrel.Mac은 **서명된 앱만** 갈아끼운다. 미서명 설치본에서
+// 내려받아 봐야 설치가 못 끝나고 조용히 실패한다. 그래서 macOS에서는 확인만 하고
+// (latest-mac.yml은 릴리스에 함께 올라간다) 받는 것은 사람이 한다 (D-31).
 import { app, shell } from 'electron';
 import electronUpdater from 'electron-updater';
+import { platform } from './platform/index.mjs';
 import { createUpdateState, updateLine, shortError } from './update-text.mjs';
 
 export { createUpdateState, updateLine, shortError } from './update-text.mjs';
@@ -33,15 +34,17 @@ export function createUpdater({ onChange = () => {} } = {}) {
   const supported = app.isPackaged;
 
   if (supported) {
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true; // 종료할 때 설치 — 쓰는 도중에 재시작하지 않는다
+    autoUpdater.autoDownload = platform.update.autoDownload;
+    // 종료할 때 설치 — 쓰는 도중에 재시작하지 않는다. macOS는 둘 다 꺼진다.
+    autoUpdater.autoInstallOnAppQuit = platform.update.installOnQuit;
 
     autoUpdater.on('checking-for-update', () => {
       state.status = 'checking';
       emit();
     });
     autoUpdater.on('update-available', (info) => {
-      state.status = 'available';
+      // macOS에서는 여기가 끝이다. 내려받지 않으므로 download-progress도 ready도 오지 않는다.
+      state.status = platform.update.manual ? 'manual' : 'available';
       state.version = info?.version ?? null;
       emit();
     });
@@ -81,11 +84,24 @@ export function createUpdater({ onChange = () => {} } = {}) {
     return state;
   }
 
+  const openReleases = () => shell.openExternal(RELEASES_URL);
+
   return {
     state,
     line: (current) => updateLine(state, current),
     check,
-    openReleases: () => shell.openExternal(RELEASES_URL),
+    openReleases,
+
+    // 트레이 메뉴에서 그 줄을 눌렀을 때. 상태에 따라 하는 일이 다르다 —
+    // 새 버전을 찾아 둔 macOS에서는 확인을 한 번 더 하는 것이 아니라 받는 곳을 연다.
+    activate() {
+      if (!supported) return state;
+      if (state.status === 'manual') {
+        openReleases();
+        return state;
+      }
+      return check();
+    },
     start() {
       if (!supported) return;
       setTimeout(check, FIRST_CHECK_MS);

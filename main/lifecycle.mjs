@@ -14,6 +14,7 @@ import { registerIpc } from './ipc.mjs';
 import { stateAt, msUntilNextChange, DEFAULTS, dueReminders, remindText } from './clock.mjs';
 import { syncAll, SYNC_INTERVAL_MS } from './sync.mjs';
 import { createUpdater } from './update.mjs';
+import { platform } from './platform/index.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -77,12 +78,22 @@ function seedDemo(store) {
   return rows.length + spans.length;
 }
 
-// 트레이 아이콘. 비어 있으면 Windows 트레이에 아무것도 안 뜨고, 그러면 앱을 끌 방법이
+// 트레이 아이콘. 비어 있으면 트레이·메뉴 막대에 아무것도 안 뜨고, 그러면 앱을 끌 방법이
 // 사라진다 — 스모크가 이걸 검사하는 이유다(REL-05).
+//
+// 어느 파일을 쓸지는 platform이 정한다 — macOS 메뉴 막대는 Template(알파만 남긴 검정)을
+// 원하고, Windows 트레이는 색이 든 것을 원한다. `@2x`는 파일 이름 규칙이라 따로 걸지
+// 않는다 — createFromPath가 같은 폴더의 `tray-Template@2x.png`를 알아서 함께 읽는다.
 function trayIcon() {
-  const png = path.join(ROOT, 'build', 'tray.png');
-  if (!fs.existsSync(png)) return nativeImage.createEmpty();
-  return nativeImage.createFromPath(png);
+  for (const name of platform.tray.icons) {
+    const png = path.join(ROOT, 'build', name);
+    if (!fs.existsSync(png)) continue;
+    const img = nativeImage.createFromPath(png);
+    if (img.isEmpty()) continue;
+    if (platform.tray.template) img.setTemplateImage(true);
+    return img;
+  }
+  return nativeImage.createEmpty();
 }
 
 function overlayOptions(store) {
@@ -194,10 +205,9 @@ export function bootstrap() {
       { type: 'separator' },
       {
         label: ctx.updater ? ctx.updater.line(app.getVersion()) : `버전 ${app.getVersion()}`,
-        click: () => {
-          if (!ctx.updater || ctx.updater.state.status === 'unsupported') return;
-          ctx.updater.check();
-        },
+        // 상태에 따라 하는 일이 다르다 — 평소엔 확인하고, macOS에서 새 버전을 찾은
+        // 뒤에는 받는 곳을 연다(자동 설치 경로가 없다. D-31).
+        click: () => ctx.updater?.activate(),
       },
       { type: 'separator' },
       { label: '종료', click: () => app.quit() }
@@ -210,11 +220,21 @@ export function bootstrap() {
     const tray = new Tray(trayIcon());
     tray.setToolTip('WHENCALENDAR');
     rebuildTrayMenu(tray);
-    tray.on('click', () => ctx.mainWindow.toggle());
+    // macOS는 왼쪽 클릭이 곧 메뉴다 — 창까지 열면 메뉴와 창이 함께 튀어나온다.
+    if (platform.tray.clickOpensWindow) tray.on('click', () => ctx.mainWindow.toggle());
     return tray;
   }
 
   app.whenReady().then(() => {
+    // macOS는 메뉴 막대에 산다 — Dock에 뜨지 않는다. 설치본에서는 LSUIElement가 같은 일을
+    // 하지만 `npm start`에는 그 plist가 없으므로 여기서도 내린다.
+    if (platform.hideDock) app.dock?.hide();
+
+    // Dock에서 빠진 앱에는 응용 프로그램 메뉴가 없고, 그러면 **입력 칸에서 Cmd+C·V가
+    // 죽는다.** 메뉴는 화면에 보이지 않지만 키 조합은 이 표를 타고 들어온다.
+    // Windows는 null이라 기본 메뉴(F12·Ctrl+R)를 건드리지 않는다.
+    if (platform.appMenu) Menu.setApplicationMenu(Menu.buildFromTemplate(platform.appMenu()));
+
     const dir = app.getPath('userData');
     ctx.store = createStore(path.join(dir, 'store.sqlite'));
     ctx.settings = createSettings(path.join(dir, 'settings.json'));
@@ -234,6 +254,7 @@ export function bootstrap() {
       const ok = ctx.store.ok && tray;
       console.log(
         JSON.stringify({
+          platform: platform.id,
           store: ctx.store.ok,
           reason: ctx.store.state.reason,
           tray,
@@ -317,4 +338,8 @@ export function bootstrap() {
 
   // 트레이에 사는 앱이라 창을 닫아도 끝나지 않는다 (WIN-08)
   app.on('window-all-closed', () => {});
+
+  // macOS에서 앱을 다시 띄웠을 때(Dock을 보이게 해 둔 경우·Launchpad에서 다시 실행) —
+  // 이미 떠 있으므로 새 인스턴스가 서지 않는다. 창을 보여 주는 것이 사람이 기대하는 일이다.
+  app.on('activate', () => ctx.mainWindow?.show());
 }

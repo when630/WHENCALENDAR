@@ -5,6 +5,7 @@
 import { BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { platform } from './platform/index.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,11 +22,13 @@ export function createOverlay() {
   let hovering = false;
   let suspended = false; // OVL-13 — 발표·녹화 중 잠시 끄기
 
+  // 가로는 화면 가운데, 세로는 platform이 정하는 맨 위다 — Windows는 화면 꼭대기,
+  // macOS는 메뉴 막대 아래(노치가 있는 맥에서는 그 자리가 곧 노치다).
   function placeOn(display) {
     const b = display.bounds;
     return {
       x: Math.round(b.x + (b.width - WIN_W) / 2),
-      y: b.y,
+      y: platform.overlay.top(display),
     };
   }
 
@@ -36,6 +39,8 @@ export function createOverlay() {
       y,
       width: WIN_W,
       height: WIN_H,
+      // macOS는 'panel'. 그래야 다른 앱의 전체화면 공간 위에 선다 (OVL-02).
+      ...(platform.overlay.windowType ? { type: platform.overlay.windowType } : {}),
       frame: false,
       transparent: true,
       backgroundColor: '#00000000',
@@ -54,7 +59,7 @@ export function createOverlay() {
     // 마우스는 통과시키되 이동 이벤트만 렌더러로 넘긴다 — 호버 확장을 위해(OVL-03·OVL-11)
     win.setIgnoreMouseEvents(true, { forward: true });
     raise();
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setVisibleOnAllWorkspaces(true, platform.overlay.workspaces);
 
     win.loadFile(path.join(HERE, '..', 'renderer', 'overlay.html'));
     win.webContents.once('did-finish-load', () => {
@@ -65,7 +70,9 @@ export function createOverlay() {
   function raise() {
     if (!win || win.isDestroyed()) return;
     win.setAlwaysOnTop(true, 'screen-saver');
-    win.moveTop();
+    // macOS에서는 레벨만으로 전체화면 위에 선다. 매초 moveTop을 부르면 메뉴 막대 앱이
+    // 앞으로 끌려 나와 쓰던 창의 포커스를 흔든다 — Windows에서만 필요한 수다(D-14).
+    if (platform.overlay.keepTopMovesTop) win.moveTop();
   }
 
   // 전체화면·TopMost 창이 나중에 뜨면 같은 z-order 밴드에서 우리 위로 올라간다.

@@ -5,9 +5,16 @@
 //
 // 원본은 assets/icon/whencalendar.png 하나뿐이다. 여기서 두 가지를 만든다:
 //
-//   build/icon.png        — 설치 파일·실행 파일·창·macOS Dock/dmg가 쓰는 앱 아이콘.
-//                           원본 비율 그대로 512px로 줄인다(여백도 함께 남긴다 —
-//                           설치 관리자와 Dock은 자기 여백을 따로 두지 않는다).
+//   build/icon.png        — 설치 파일·실행 파일·창이 쓰는 앱 아이콘. 원본 비율 그대로
+//                           512px로 줄인다(여백도 함께 남긴다 — 설치 관리자와 Dock은
+//                           자기 여백을 따로 두지 않는다).
+//
+//   build/icon.icns       — macOS 앱 번들·dmg가 쓰는 아이콘. electron-builder가 png를
+//                           변환해 주기도 하지만 그 변환은 빌드 머신의 도구를 타고,
+//                           512px 원본에는 경고를 낸다. 여기서 직접 구우면 어느 OS에서
+//                           빌드해도 같은 파일이 나온다(Windows에서 `npm ci`만 해도
+//                           생긴다). iconutil이 쓰는 것과 같은 타입 열 개에 PNG를
+//                           그대로 담는다.
 //
 //   build/tray*.png       — 트레이/메뉴바 글리프. 원본에서 **흰 도형만 떼어내** 그
 //                           도형의 경계로 잘라 줄인 것이다. 아이콘은 배경 위에 도형이
@@ -276,6 +283,41 @@ export function accentColor(rgba, mask, w, h) {
   return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
 }
 
+// ── .icns
+//
+// 파일 = 'icns' + 전체 길이 + [타입(4) + 길이(4) + 데이터] 반복. 길이는 자기 머리 8바이트를
+// 포함한다 — 여기를 빼먹으면 Finder가 아이콘을 통째로 무시한다(조용히 기본 아이콘이 된다).
+//
+// 타입 ↔ 크기는 iconutil이 .iconset을 구울 때 쓰는 것과 같다. 16·32가 둘씩인 것은 1x와 2x다.
+export const ICNS_SIZES = [
+  ['icp4', 16],
+  ['icp5', 32],
+  ['ic11', 32], // 16@2x
+  ['ic12', 64], // 32@2x
+  ['ic07', 128],
+  ['ic13', 256], // 128@2x
+  ['ic08', 256],
+  ['ic14', 512], // 256@2x
+  ['ic09', 512],
+  ['ic10', 1024], // 512@2x
+];
+
+export function encodeIcns(entries) {
+  const parts = [];
+  let total = 8;
+  for (const [type, png] of entries) {
+    const head = Buffer.alloc(8);
+    head.write(type, 0, 'ascii');
+    head.writeUInt32BE(png.length + 8, 4);
+    parts.push(head, png);
+    total += png.length + 8;
+  }
+  const head = Buffer.alloc(8);
+  head.write('icns', 0, 'ascii');
+  head.writeUInt32BE(total, 4);
+  return Buffer.concat([head, ...parts]);
+}
+
 export function buildIcons() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const src = decodePng(fs.readFileSync(SRC));
@@ -283,6 +325,14 @@ export function buildIcons() {
 
   // 앱 아이콘 — 원본 그대로. 둥근 사각형 배경이 곧 앱 아이콘의 모양이다.
   fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), encodePng(512, 512, resize(src.rgba, src.w, src.h, 512)));
+
+  // macOS 앱 아이콘. 원본보다 큰 칸은 만들지 않는다 — 박스 평균은 줄이는 축소라
+  // 늘리면 뭉갠 것이 그대로 보인다. 1024가 빠져도 macOS는 512를 늘려 쓴다.
+  const icns = ICNS_SIZES.filter(([, size]) => size <= Math.min(src.w, src.h)).map(([type, size]) => [
+    type,
+    encodePng(size, size, resize(src.rgba, src.w, src.h, size)),
+  ]);
+  fs.writeFileSync(path.join(OUT_DIR, 'icon.icns'), encodeIcns(icns));
 
   // 트레이/메뉴바 — 배경을 버리고 흰 도형만 떼어내 **그 도형의 경계로** 다시 자른다.
   // 앱 아이콘의 경계 상자(사각형 전체)로 자르면 도형이 프레임 안에서 작아진다.
@@ -299,11 +349,14 @@ export function buildIcons() {
     src: `${src.w}x${src.h}`,
     crop: bb.x1 - bb.x0 + 1,
     glyph: gb.x1 - gb.x0 + 1,
+    icns: icns.length,
     accent: accent.map((v) => v.toString(16).padStart(2, '0')).join(''),
   };
 }
 
 if (process.argv[1] && process.argv[1].endsWith('make-icon.mjs')) {
   const info = buildIcons();
-  console.log(`icons written to build/ (source ${info.src} → icon.png 512, glyph ${info.glyph}px crop, accent #${info.accent})`);
+  console.log(
+    `icons written to build/ (source ${info.src} → icon.png 512, icon.icns ${info.icns}칸, glyph ${info.glyph}px crop, accent #${info.accent})`
+  );
 }

@@ -13,7 +13,9 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "icons": "node tools/make-icon.mjs",
     "postinstall": "node tools/make-icon.mjs",
-    "build": "electron-builder --win --publish never"
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never"
   },
   "devDependencies": {
     "electron": "^43.2.0",
@@ -32,6 +34,7 @@
       "build/*.png"
     ],
     "artifactName": "WHENCALENDAR-${version}-${os}-${arch}.${ext}",
+    "afterPack": "tools/adhoc-sign.cjs",
     "win": {
       "target": [
         {
@@ -49,6 +52,35 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "WHENCALENDAR"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "dmg": {
+      "title": "WHENCALENDAR ${version}"
     },
     "publish": [
       {

@@ -19,6 +19,9 @@ export function updateLine(state, current = '') {
       return `새 버전 ${state.version} 내려받는 중 ${Math.round(state.percent)}%`;
     case 'ready':
       return `새 버전 ${state.version} 준비됨 — 종료할 때 설치됩니다`;
+    // macOS. 내려받아 갈아끼우는 경로가 없으므로(D-31) 있다는 것만 알리고 사람이 받는다.
+    case 'manual':
+      return `새 버전 ${state.version} — 눌러서 받으러 갑니다`;
     case 'error':
       return `업데이트 확인 실패 — ${state.error}`;
     case 'unsupported':

@@ -11,6 +11,9 @@ test('상태마다 사람이 읽는 한 줄', () => {
   assert.match(updateLine({ ...s, status: 'available', version: '0.2.0' }), /0\.2\.0/);
   assert.match(updateLine({ ...s, status: 'downloading', version: '0.2.0', percent: 42.7 }), /43%/);
   assert.match(updateLine({ ...s, status: 'ready', version: '0.2.0' }), /종료할 때 설치/);
+  // macOS — 내려받아 갈아끼우는 경로가 없다. 있다는 것만 알리고 사람이 받는다 (D-31)
+  assert.match(updateLine({ ...s, status: 'manual', version: '0.2.0' }), /0\.2\.0/);
+  assert.match(updateLine({ ...s, status: 'manual', version: '0.2.0' }), /받으러/);
   assert.match(updateLine({ ...s, status: 'unsupported' }), /설치본에서만/);
   assert.match(updateLine({ ...s, status: 'error', error: '네트워크에 닿지 못했습니다' }), /네트워크/);
 });
